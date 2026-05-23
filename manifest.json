@@ -1,0 +1,180 @@
+{
+  "manifest_version": 3,
+  "name": "Brief",
+  "short_name": "Brief",
+  "version": "2.2.0",
+  "description": "A calm local AI layer for the web. Understand any page instantly — no cloud, no accounts, fully private.",
+  "author": "bharadwajsanket \u2014 https://github.com/bharadwajsanket",
+  "action": {
+    "default_icon": {
+      "16": "img/icon_16.png",
+      "32": "img/icon_32.png",
+      "64": "img/icon_64.png"
+    },
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "/js/background.js",
+    "type": "module"
+  },
+  "commands": {
+    "copy-clean-url": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+U",
+        "mac": "Command+Shift+U"
+      },
+      "description": "Copy clean URL of current tab"
+    },
+    "toggle-popup": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Space",
+        "mac": "Command+Shift+Space"
+      },
+      "description": "Open Brief popup"
+    }
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ublock-filters",
+        "enabled": true,
+        "path": "/rulesets/main/ublock-filters.json"
+      },
+      {
+        "id": "easylist",
+        "enabled": true,
+        "path": "/rulesets/main/easylist.json"
+      },
+      {
+        "id": "easyprivacy",
+        "enabled": true,
+        "path": "/rulesets/main/easyprivacy.json"
+      },
+      {
+        "id": "pgl",
+        "enabled": true,
+        "path": "/rulesets/main/pgl.json"
+      },
+      {
+        "id": "ublock-badware",
+        "enabled": true,
+        "path": "/rulesets/main/ublock-badware.json"
+      },
+      {
+        "id": "urlhaus-full",
+        "enabled": true,
+        "path": "/rulesets/main/urlhaus-full.json"
+      },
+      {
+        "id": "annoyances-overlays",
+        "enabled": true,
+        "path": "/rulesets/main/annoyances-overlays.json"
+      },
+      {
+        "id": "annoyances-cookies",
+        "enabled": false,
+        "path": "/rulesets/main/annoyances-cookies.json"
+      },
+      {
+        "id": "annoyances-social",
+        "enabled": false,
+        "path": "/rulesets/main/annoyances-social.json"
+      },
+      {
+        "id": "annoyances-widgets",
+        "enabled": false,
+        "path": "/rulesets/main/annoyances-widgets.json"
+      },
+      {
+        "id": "annoyances-others",
+        "enabled": false,
+        "path": "/rulesets/main/annoyances-others.json"
+      },
+      {
+        "id": "annoyances-notifications",
+        "enabled": false,
+        "path": "/rulesets/main/annoyances-notifications.json"
+      },
+      {
+        "id": "adguard-mobile",
+        "enabled": false,
+        "path": "/rulesets/main/adguard-mobile.json"
+      },
+      {
+        "id": "ublock-experimental",
+        "enabled": false,
+        "path": "/rulesets/main/ublock-experimental.json"
+      }
+    ]
+  },
+  "default_locale": "en",
+  "host_permissions": [
+    "<all_urls>",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "icons": {
+    "16": "img/icon_16.png",
+    "32": "img/icon_32.png",
+    "64": "img/icon_64.png",
+    "128": "img/icon_128.png"
+  },
+  "incognito": "split",
+  "minimum_chrome_version": "122.0",
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "declarativeNetRequest",
+    "notifications",
+    "scripting",
+    "storage",
+    "tabs",
+    "webNavigation"
+  ],
+  "storage": {
+    "managed_schema": "managed_storage.json"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "/strictblock.html"
+      ],
+      "matches": [
+        "<all_urls>"
+      ],
+      "use_dynamic_url": true
+    },
+    {
+      "resources": [
+        "web_accessible_resources/noop.js",
+        "web_accessible_resources/noop.txt",
+        "web_accessible_resources/1x1.gif",
+        "web_accessible_resources/noop.css",
+        "web_accessible_resources/32x32.png",
+        "web_accessible_resources/2x2.png",
+        "web_accessible_resources/noop.html",
+        "web_accessible_resources/noop.json"
+      ],
+      "matches": [
+        "<all_urls>"
+      ],
+      "use_dynamic_url": true
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "/js/content.js"
+      ],
+      "css": [
+        "/js/hygiene.css"
+      ],
+      "run_at": "document_end",
+      "all_frames": false
+    }
+  ]
+}

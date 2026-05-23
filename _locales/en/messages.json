@@ -1,0 +1,14 @@
+{
+  "extName":        { "message": "CleanCopy Pro" },
+  "extShortName":   { "message": "CleanCopy" },
+  "extDescription": { "message": "uBlock Lite blocking + URL cleaning, redirect bypass, AMP cleanup, and browser hygiene." },
+  "filteringModeBasicDesc":    { "message": "Basic mode: blocks ads and trackers on all sites." },
+  "filteringModeOptimalDesc":  { "message": "Optimal mode: advanced filtering on all sites." },
+  "filteringModeCompleteDesc": { "message": "Complete mode: maximum filtering including cosmetic filters." },
+  "popupFilteringModeNone":    { "message": "No filtering" },
+  "popupFilteringModeBasic":   { "message": "Basic" },
+  "popupFilteringModeOptimal": { "message": "Optimal" },
+  "popupFilteringModeComplete":{ "message": "Complete" },
+  "popupPowerButton":          { "message": "Toggle filtering for this site" },
+  "dashboardName":             { "message": "CleanCopy Pro — Dashboard" }
+}

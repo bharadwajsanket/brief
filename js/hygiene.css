@@ -1,0 +1,26 @@
+/* CleanCopy Pro — hygiene.css
+   Injected as USER-origin CSS (highest specificity).
+   Removes app banners, newsletter popups, "open in app" nags. */
+
+/* App install / smart banners */
+#app-banner, .app-banner, .app-install-banner, .smart-banner,
+[id*="app-download-banner"], [class*="app-download-banner"],
+.branch-journeys-top, .branch-journeys,
+#smartbanner, .smartbanner,
+[id^="smart-app-banner"], [class^="smart-app-banner"],
+[data-testid="OpenInApp"],
+[aria-label*="Open in app" i],
+[class*="open-in-app" i],
+[class*="openInApp"],
+[id*="open-in-app" i] { display: none !important; }
+
+/* Newsletter / email capture */
+[class*="newsletter-popup" i],
+[id*="newsletter-popup" i],
+[class*="email-capture" i],
+[class*="email-signup-modal" i],
+[class*="ModalNewsletter"],
+.mc-modal, #mc-modal { display: none !important; }
+
+/* Piano / paywall soft overlays */
+.tp-modal, #tp-modal, .tp-backdrop { display: none !important; }
