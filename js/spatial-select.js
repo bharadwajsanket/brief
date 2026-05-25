@@ -11,47 +11,11 @@
   let container = null;
   let currentPort = null;
 
-  // Keycode/key name
-  const ACTIVATION_KEY = 'Alt'; // Option on macOS triggers Alt keydown
-
-  // Set up listeners safely
+  // Set up Escape listener safely to dismiss overlays
   try {
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
     window.addEventListener('keydown', onEscPress);
   } catch (err) {
     console.error('Brief Spatial selection listeners binding failed:', err);
-  }
-
-  function onKeyDown(e) {
-    if (e.key !== ACTIVATION_KEY) return;
-    if (active) return;
-    
-    try {
-      // Check if focused in an input/textarea
-      const activeEl = document.activeElement;
-      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) {
-        return;
-      }
-
-      startSelectionMode();
-    } catch (err) {
-      console.error('Brief onKeyDown failed:', err);
-      cleanUp();
-    }
-  }
-
-  function onKeyUp(e) {
-    if (e.key !== ACTIVATION_KEY) return;
-    try {
-      // Release Option key cancels inactive selection mode
-      if (active && !dragging && !hasActivePanel()) {
-        cleanUp();
-      }
-    } catch (err) {
-      console.error('Brief onKeyUp failed:', err);
-      cleanUp();
-    }
   }
 
   function onEscPress(e) {
@@ -68,22 +32,27 @@
     return shadowRoot && shadowRoot.getElementById('briefPanelCard')?.classList.contains('visible');
   }
 
+  function ensureShadowRoot() {
+    if (container && shadowRoot) return;
+    container = document.createElement('div');
+    container.id = 'brief-spatial-container';
+    container.style.cssText = 'position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 2147483640;';
+    shadowRoot = container.attachShadow({ mode: 'open' });
+    document.documentElement.appendChild(container);
+
+    const style = document.createElement('style');
+    style.textContent = getStyles();
+    shadowRoot.appendChild(style);
+
+    applyPageTheme();
+  }
+
   function startSelectionMode() {
     try {
       active = true;
       dragging = false;
 
-      // Create container and Shadow DOM
-      container = document.createElement('div');
-      container.id = 'brief-spatial-container';
-      container.style.cssText = 'position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 2147483640;';
-      shadowRoot = container.attachShadow({ mode: 'open' });
-      document.documentElement.appendChild(container);
-
-      // Apply styles to shadow DOM
-      const style = document.createElement('style');
-      style.textContent = getStyles();
-      shadowRoot.appendChild(style);
+      ensureShadowRoot();
 
       // Create full screen overlay
       const overlay = document.createElement('div');
@@ -96,9 +65,6 @@
         if (overlay) overlay.classList.add('active');
         document.body.style.cursor = 'crosshair';
       });
-
-      // Detect theme color of page
-      applyPageTheme();
     } catch (err) {
       console.error('Brief startSelectionMode failed:', err);
       cleanUp();
@@ -402,7 +368,9 @@
       explainCode: 'Code Explained',
       findBug: 'Bugs Found',
       simplifyLogic: 'Simplified Code',
-      ask: 'Answer'
+      ask: 'Answer',
+      define: 'Definition',
+      synonyms: 'Synonyms'
     };
     return labels[act] || 'Response';
   }
@@ -499,16 +467,23 @@
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
 
-    let left = rect.left + (rect.width - panelWidth) / 2;
-    left = Math.max(margin, Math.min(left, viewportWidth - panelWidth - margin));
-
-    let top = rect.bottom + window.scrollY + 8;
-    
     panel.style.display = 'flex';
-    const panelHeight = panel.offsetHeight || 120;
+    const panelHeight = panel.offsetHeight || 300;
 
-    if (rect.bottom + panelHeight + margin > viewportHeight) {
-      top = rect.top + window.scrollY - panelHeight - 8;
+    let left, top;
+    if (rect) {
+      left = rect.left + (rect.width - panelWidth) / 2;
+      left = Math.max(margin, Math.min(left, viewportWidth - panelWidth - margin));
+      top = rect.bottom + window.scrollY + 8;
+      if (rect.bottom + panelHeight + margin > viewportHeight) {
+        top = rect.top + window.scrollY - panelHeight - 8;
+      }
+    } else {
+      // Default to bottom-right of viewport, elevated above floating orb position
+      left = viewportWidth - panelWidth - 24;
+      top = window.scrollY + viewportHeight - panelHeight - 80;
+      left = Math.max(margin, Math.min(left, viewportWidth - panelWidth - margin));
+      top = Math.max(window.scrollY + margin, top);
     }
 
     panel.style.left = `${left}px`;
@@ -585,6 +560,14 @@
     ask: (text, question) => [
       { role: 'system', content: 'You are Brief, a concise browser reading assistant. Plain text only, no markdown headers or formatting. Be direct and answer using only the provided text context if possible.' },
       { role: 'user', content: `Context selection:\n"${text}"\n\nQuestion: ${question}` }
+    ],
+    define: (text) => [
+      { role: 'system', content: 'You are Brief, a concise dictionary assistant. Provide a brief definition of the term. Plain text only, no markdown.' },
+      { role: 'user', content: `Define the term: "${text}"` }
+    ],
+    synonyms: (text) => [
+      { role: 'system', content: 'You are Brief, a concise thesaurus assistant. Provide 3-5 synonyms. Plain text only, no markdown.' },
+      { role: 'user', content: `Provide synonyms for: "${text}"` }
     ]
   };
 
@@ -925,5 +908,70 @@
       }
     `;
   }
+
+  // Expose public APIs for the floating orb and utility palette
+  window.__briefStartRegionSelect = function () {
+    try {
+      cleanUp();
+      startSelectionMode();
+    } catch (err) {
+      console.error('Brief startRegionSelect failed:', err);
+    }
+  };
+
+  window.__briefShowResultPanel = function (title, text, actionType) {
+    try {
+      active = true;
+      ensureShadowRoot();
+
+      const existingPanel = shadowRoot.getElementById('briefPanelCard');
+      if (existingPanel) existingPanel.remove();
+
+      const panel = document.createElement('div');
+      panel.id = 'briefPanelCard';
+      panel.className = 'brief-panel-card';
+      panel.innerHTML = `
+        <div class="brief-panel-header">
+          <span class="brief-panel-title">${title}</span>
+          <button class="brief-panel-close" id="briefPanelClose">×</button>
+        </div>
+        <div class="brief-panel-actions" id="briefPanelActions" style="display:none;"></div>
+        <div class="brief-panel-response-wrap" id="briefPanelResponseWrap">
+          <div class="brief-panel-response-header">
+            <span class="brief-panel-response-tag" id="briefPanelResponseTag">Response</span>
+            <button class="brief-panel-copy" id="briefPanelCopy">Copy</button>
+          </div>
+          <div class="brief-panel-response-body" id="briefPanelResponseBody"></div>
+        </div>
+      `;
+      shadowRoot.appendChild(panel);
+
+      shadowRoot.getElementById('briefPanelClose').addEventListener('click', cleanUp);
+      
+      selectedRect = null;
+      positionPanel(null);
+
+      const promptGenerator = SPATIAL_PROMPTS[actionType];
+      if (promptGenerator) {
+        const messages = promptGenerator(text);
+        const label = getLabelForAction(actionType);
+        startAICompletion(messages, label);
+      } else {
+        const messages = [
+          { role: 'system', content: 'You are Brief, a concise browser reading assistant. Plain text only, no markdown headers or formatting. Be direct and specific.' },
+          { role: 'user', content: text }
+        ];
+        startAICompletion(messages, 'Response');
+      }
+
+      setTimeout(() => {
+        document.addEventListener('click', onClickOutside);
+      }, 50);
+
+    } catch (err) {
+      console.error('Brief showResultPanel failed:', err);
+      cleanUp();
+    }
+  };
 
 })();

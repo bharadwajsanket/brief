@@ -224,9 +224,20 @@
     const text = bubble?.dataset.selection ?? '';
     if (!text) return;
 
-    // Store pending action in session via background
-    chrome.runtime.sendMessage({ what: 'brief:setSelection', selection: text, action });
-    chrome.runtime.sendMessage({ what: 'brief:openPopup' });
+    if (typeof window.__briefShowResultPanel === 'function') {
+      const labelMap = {
+        define: 'Definition',
+        synonyms: 'Synonyms',
+        explain: 'Explanation',
+        ask: 'Answer'
+      };
+      const title = labelMap[action] || 'Brief Selection';
+      window.__briefShowResultPanel(title, text, action);
+    } else {
+      // Fallback to popup
+      chrome.runtime.sendMessage({ what: 'brief:setSelection', selection: text, action });
+      chrome.runtime.sendMessage({ what: 'brief:openPopup' });
+    }
   }
 
   // Listen for text selection
@@ -309,11 +320,386 @@
     }
   };
 
+  // ── Floating Orb & Utility Palette ──────────────────────────────────────────
+  function getOrbStyles() {
+    return `
+      :host {
+        --brief-accent: #0a84ff;
+        --brief-accent-soft: rgba(10, 132, 255, 0.12);
+        --brief-accent-glow: rgba(10, 132, 255, 0.28);
+      }
+
+      #brief-orb {
+        position: fixed;
+        bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+        right: calc(24px + env(safe-area-inset-right, 0px));
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2147483638;
+        opacity: 0.45;
+        transform: scale(1);
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        animation: brief-orb-pulse 3s infinite ease-in-out;
+      }
+
+      #brief-orb:hover {
+        opacity: 1;
+        transform: scale(1.08);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12), 0 1px 6px rgba(0, 0, 0, 0.06);
+      }
+
+      #brief-orb.active {
+        opacity: 1;
+        transform: scale(0.92);
+      }
+
+      #brief-orb svg {
+        width: 20px;
+        height: 20px;
+        color: var(--brief-accent);
+        transition: transform 0.25s ease;
+      }
+
+      #brief-orb:hover svg {
+        transform: rotate(8deg);
+      }
+
+      @keyframes brief-orb-pulse {
+        0%, 100% { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 0 var(--brief-accent-soft); }
+        50% { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.10), 0 0 0 8px rgba(10, 132, 255, 0); }
+      }
+
+      @media (prefers-color-scheme: dark) {
+        #brief-orb {
+          background: rgba(30, 30, 32, 0.85);
+          border-color: rgba(255, 255, 255, 0.08);
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25), 0 1px 4px rgba(0, 0, 0, 0.15);
+        }
+        @keyframes brief-orb-pulse {
+          0%, 100% { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25), 0 0 0 0 var(--brief-accent-soft); }
+          50% { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.30), 0 0 0 8px rgba(10, 132, 255, 0); }
+        }
+      }
+
+      .brief-palette {
+        position: fixed;
+        bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+        right: calc(24px + env(safe-area-inset-right, 0px));
+        width: 220px;
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 14px;
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+        color: #1c1c1e;
+        padding: 8px;
+        z-index: 2147483639;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        opacity: 0;
+        transform: translateY(12px) scale(0.96);
+        pointer-events: none;
+        transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .brief-palette.visible {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        pointer-events: auto;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        .brief-palette {
+          background: rgba(32, 32, 35, 0.88);
+          border-color: rgba(255, 255, 255, 0.08);
+          color: #f2f2f7;
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.20);
+        }
+      }
+
+      .brief-palette-header {
+        padding: 6px 8px 4px 8px;
+        font-size: 10px;
+        font-weight: 700;
+        color: #8e8e93;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+        margin-bottom: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        .brief-palette-header {
+          border-bottom-color: rgba(255, 255, 255, 0.04);
+        }
+      }
+
+      .brief-palette-btn {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        background: none;
+        border: none;
+        border-radius: 8px;
+        color: inherit;
+        font-family: inherit;
+        font-size: 12.5px;
+        font-weight: 500;
+        text-align: left;
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s, transform 0.12s;
+        box-sizing: border-box;
+      }
+
+      .brief-palette-btn:hover {
+        background: var(--brief-accent-soft);
+        color: var(--brief-accent);
+      }
+
+      .brief-palette-btn:active {
+        transform: scale(0.98);
+      }
+
+      .brief-palette-btn svg {
+        width: 15px;
+        height: 15px;
+        flex-shrink: 0;
+        opacity: 0.8;
+      }
+
+      .brief-palette-btn:hover svg {
+        opacity: 1;
+      }
+
+      .brief-palette-btn.active {
+        background: var(--brief-accent-soft);
+        color: var(--brief-accent);
+        font-weight: 600;
+      }
+    `;
+  }
+
+  function getSelectedText() {
+    const sel = window.getSelection();
+    return sel ? sel.toString().trim() : '';
+  }
+
+  function getThemeColor() {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    const color = meta?.content?.trim();
+    if (color && /^#[0-9a-f]{3,8}$/i.test(color)) {
+      return color;
+    }
+    return '#0a84ff'; // default Brief blue
+  }
+
+  function hexToRgba(hex, alpha) {
+    let c = hex.substring(1);
+    if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+    const r = parseInt(c.substring(0, 2), 16);
+    const g = parseInt(c.substring(2, 4), 16);
+    const b = parseInt(c.substring(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  function initBriefUI() {
+    if (document.getElementById('brief-orb-shadow-container')) return;
+
+    const container = document.createElement('div');
+    container.id = 'brief-orb-shadow-container';
+    container.style.cssText = 'position: fixed; bottom: 0; right: 0; width: auto; height: auto; z-index: 2147483637; pointer-events: none;';
+    const shadow = container.attachShadow({ mode: 'open' });
+    document.documentElement.appendChild(container);
+
+    const style = document.createElement('style');
+    style.textContent = getOrbStyles();
+    shadow.appendChild(style);
+
+    const orb = document.createElement('div');
+    orb.id = 'brief-orb';
+    orb.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+      </svg>
+    `;
+    orb.style.pointerEvents = 'auto';
+    shadow.appendChild(orb);
+
+    const palette = document.createElement('div');
+    palette.className = 'brief-palette';
+    shadow.appendChild(palette);
+
+    orb.addEventListener('click', e => {
+      e.stopPropagation();
+      togglePalette();
+    });
+
+    const accent = getThemeColor();
+    const accentSoft = hexToRgba(accent, 0.12);
+    const accentGlow = hexToRgba(accent, 0.28);
+    container.style.setProperty('--brief-accent', accent);
+    container.style.setProperty('--brief-accent-soft', accentSoft);
+    container.style.setProperty('--brief-accent-glow', accentGlow);
+  }
+
+  function togglePalette() {
+    const shadow = document.getElementById('brief-orb-shadow-container')?.shadowRoot;
+    if (!shadow) return;
+    const palette = shadow.querySelector('.brief-palette');
+    const orb = shadow.getElementById('brief-orb');
+    if (!palette) return;
+
+    const visible = palette.classList.contains('visible');
+    if (visible) {
+      closePalette();
+    } else {
+      updatePaletteContent(palette);
+      palette.classList.add('visible');
+      orb.classList.add('active');
+    }
+  }
+
+  function closePalette() {
+    const shadow = document.getElementById('brief-orb-shadow-container')?.shadowRoot;
+    if (!shadow) return;
+    const palette = shadow.querySelector('.brief-palette');
+    const orb = shadow.getElementById('brief-orb');
+    if (palette) {
+      palette.classList.remove('visible');
+    }
+    if (orb) {
+      orb.classList.remove('active');
+    }
+  }
+
+  function updatePaletteContent(palette) {
+    const selText = getSelectedText();
+    const isFocusActive = document.documentElement.hasAttribute('data-brief-focus');
+
+    let html = `
+      <div class="brief-palette-header">
+        <span>Brief layer</span>
+      </div>
+      <button class="brief-palette-btn" id="btn-summarize">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+        Summarize Page
+      </button>
+      <button class="brief-palette-btn${isFocusActive ? ' active' : ''}" id="btn-focus">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        ${isFocusActive ? 'Exit Focus Mode' : 'Focus Mode'}
+      </button>
+      <button class="brief-palette-btn" id="btn-clean">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        Clean URL
+      </button>
+      <button class="brief-palette-btn" id="btn-region">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 4"/></svg>
+        Understand Region
+      </button>
+    `;
+
+    if (selText.length >= 3) {
+      html += `
+        <button class="brief-palette-btn" id="btn-define">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Define Selection
+        </button>
+      `;
+    }
+
+    palette.innerHTML = html;
+
+    palette.querySelector('#btn-summarize').addEventListener('click', () => {
+      closePalette();
+      runSummarizePage();
+    });
+
+    palette.querySelector('#btn-focus').addEventListener('click', () => {
+      const isAct = document.documentElement.hasAttribute('data-brief-focus');
+      window.__briefFocusMode(!isAct);
+      updatePaletteContent(palette);
+    });
+
+    palette.querySelector('#btn-clean').addEventListener('click', () => {
+      closePalette();
+      chrome.runtime.sendMessage({ what: 'cc:copyCleanUrl' });
+    });
+
+    palette.querySelector('#btn-region').addEventListener('click', () => {
+      closePalette();
+      if (typeof window.__briefStartRegionSelect === 'function') {
+        window.__briefStartRegionSelect();
+      }
+    });
+
+    if (selText.length >= 3) {
+      palette.querySelector('#btn-define').addEventListener('click', () => {
+        closePalette();
+        if (typeof window.__briefShowResultPanel === 'function') {
+          window.__briefShowResultPanel('Selection Definition', selText, 'define');
+        }
+      });
+    }
+  }
+
+  async function runSummarizePage() {
+    try {
+      const res = await chrome.runtime.sendMessage({ what: 'cc:extractPage' });
+      if (typeof window.__briefShowResultPanel === 'function') {
+        window.__briefShowResultPanel('Page Summary', res?.data?.text || 'Could not extract page text content.', 'summarize');
+      }
+    } catch (err) {
+      console.error('runSummarizePage failed:', err);
+    }
+  }
+
+  // Close palette on window-level click outside
+  window.addEventListener('click', e => {
+    const shadow = document.getElementById('brief-orb-shadow-container')?.shadowRoot;
+    if (!shadow) return;
+    const orb = shadow.getElementById('brief-orb');
+    const palette = shadow.querySelector('.brief-palette');
+    const path = e.composedPath();
+    if (path.includes(orb) || path.includes(palette)) return;
+    closePalette();
+  });
+
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      closePalette();
+    }
+  });
+
   // ── Startup ────────────────────────────────────────────────────────────────
+  function onStartup() {
+    checkAmp();
+    sweepNags();
+    relayThemeColor();
+    initBriefUI();
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => { checkAmp(); sweepNags(); relayThemeColor(); });
+    document.addEventListener('DOMContentLoaded', onStartup);
   } else {
-    checkAmp(); sweepNags(); relayThemeColor();
+    onStartup();
   }
 
   // Watch for dynamically injected nags (disconnect after 30s)
@@ -322,5 +708,13 @@
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
   setTimeout(() => observer.disconnect(), 30000);
+
+  // Watch to ensure our orb remains present (in case SPA or page scripts clean the body/html)
+  const uiObserver = new MutationObserver(() => {
+    if (!document.getElementById('brief-orb-shadow-container')) {
+      initBriefUI();
+    }
+  });
+  uiObserver.observe(document.documentElement, { childList: true });
 
 })();
