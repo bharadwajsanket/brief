@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Brief",
   "short_name": "Brief",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "A calm local AI layer for the web. Understand any page instantly — no cloud, no accounts, fully private.",
   "author": "bharadwajsanket \u2014 https://github.com/bharadwajsanket",
   "action": {

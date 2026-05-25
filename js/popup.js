@@ -18,6 +18,7 @@ const TOKENS = {
   summarize: 320, keyPoints: 280, explain: 200,
   tldr: 80, ask: 350, explainSelection: 220,
   define: 150, synonyms: 120, explainCode: 220, summarizeDiscussion: 350,
+  followUp: 350,
 };
 
 // ── DOM ────────────────────────────────────────────────────────────────────────
@@ -77,6 +78,7 @@ const state = {
   focusActive:   false,
   lastResponse:  null,   // { tag, text } for export
   takeaways:     [],     // session-only, cleared on popup close
+  context:       null,   // lightweight conversational context
 };
 
 // ── Tab switching ──────────────────────────────────────────────────────────────
@@ -245,6 +247,16 @@ const PROMPTS = {
   synonyms:    w => [{ role:'system', content:SYS }, { role:'user', content:`Word: "${w.slice(0,80)}"\n\nList 4 synonyms and 2 antonyms. Exact format:\nSynonyms: word1, word2, word3, word4\nAntonyms: word1, word2\nNothing else.` }],
   explainCode: s => [{ role:'system', content:SYS }, { role:'user', content:`Code:\n\`\`\`\n${s.slice(0,1500)}\n\`\`\`\n\nExplain what this code does in plain English. 2–3 sentences. No bullets. Mention the language if obvious.` }],
   summarizeDiscussion: p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nThis is a discussion or comment thread. Summarize the main viewpoints. Write exactly 3 bullet points starting with "- ". Be specific — include key opinions, not just the topic.` }],
+  followUp: (topic, previousResponse, question) => [
+    { role: 'system', content: SYS },
+    {
+      role: 'user',
+      content: `You are continuing a conversation about: "${topic}"\n\n`
+        + `Previous explanation: ${previousResponse}\n\n`
+        + `User follow-up: ${question}\n\n`
+        + `Continue naturally and clearly. Do not say "not covered on this page". Do not rely on webpage-only grounding.`
+    }
+  ],
 };
 
 // ── Run AI action ──────────────────────────────────────────────────────────────
@@ -265,15 +277,19 @@ async function runAI(type, label, extra = '') {
   try {
     let messages;
 
-    if (['explainSelection', 'define', 'synonyms', 'explainCode'].includes(type)) {
-      // Selection-only actions — no page extraction needed (fast)
-      const promptFns = {
-        explainSelection: s => PROMPTS.explainSelection(s),
-        define:           s => PROMPTS.define(s),
-        synonyms:         s => PROMPTS.synonyms(s),
-        explainCode:      s => PROMPTS.explainCode(s),
-      };
-      messages = promptFns[type](extra);
+    if (['explainSelection', 'define', 'synonyms', 'explainCode', 'followUp'].includes(type)) {
+      // Selection-only / follow-up actions — no page extraction needed (fast)
+      if (type === 'followUp') {
+        messages = PROMPTS.followUp(state.context.topic, state.context.lastResponse, extra);
+      } else {
+        const promptFns = {
+          explainSelection: s => PROMPTS.explainSelection(s),
+          define:           s => PROMPTS.define(s),
+          synonyms:         s => PROMPTS.synonyms(s),
+          explainCode:      s => PROMPTS.explainCode(s),
+        };
+        messages = promptFns[type](extra);
+      }
     } else {
       const page = await getPageContent();
       if (!page?.text?.trim()) throw new Error('Page has no readable content.');
@@ -311,6 +327,11 @@ async function runAI(type, label, extra = '') {
       url:   state.tabUrl ?? '',
       title: state.tabTitle ?? '',
     };
+
+    // Save to context if applicable
+    if (['define', 'synonyms', 'explainSelection', 'explainCode', 'followUp'].includes(type)) {
+      saveContext(type, extra, full);
+    }
 
     // Show takeaway button
     responseFooter.style.display = 'flex';
@@ -365,7 +386,11 @@ askInput.addEventListener('keydown', e => {
 askSend.addEventListener('click', () => {
   const q = askInput.value.trim();
   if (!q) return;
-  runAI('ask', 'Answer', q);
+  if (isFollowUp(q)) {
+    runAI('followUp', 'Follow-up', q);
+  } else {
+    runAI('ask', 'Answer', q);
+  }
   askInput.value = '';
   askInput.style.height = 'auto';
   askSend.disabled = true;
@@ -679,6 +704,82 @@ function renderTakeaways() {
     takeawayChips.appendChild(chip);
   });
 }
+
+// ── Ephemeral conversational context ──────────────────────────────────────────
+function saveContext(type, topic, responseText) {
+  if (type === 'followUp') {
+    if (state.context) {
+      state.context.lastResponse = responseText;
+      state.context.timestamp = Date.now();
+    }
+  } else {
+    state.context = {
+      mode: type,
+      topic: topic,
+      lastResponse: responseText,
+      source: 'selection',
+      timestamp: Date.now()
+    };
+  }
+  updateContextUI();
+}
+
+function updateContextUI() {
+  const container = $('contextChipContainer');
+  const textEl = $('contextChipText');
+  if (!container || !textEl) return;
+
+  if (state.context) {
+    if (Date.now() - state.context.timestamp > 10 * 60 * 1000) {
+      state.context = null;
+      container.style.display = 'none';
+      return;
+    }
+    let displayTopic = state.context.topic;
+    if (displayTopic.length > 28) {
+      displayTopic = displayTopic.slice(0, 25) + '…';
+    }
+    textEl.textContent = `Continuing: ${displayTopic}`;
+    container.style.display = 'flex';
+  } else {
+    container.style.display = 'none';
+  }
+}
+
+function isFollowUp(question) {
+  if (!state.context) return false;
+  if (Date.now() - state.context.timestamp > 10 * 60 * 1000) {
+    state.context = null;
+    updateContextUI();
+    return false;
+  }
+  const q = question.toLowerCase();
+  const triggers = [
+    /\bit\b/,
+    /\bthis\b/,
+    /\bthat\b/,
+    /tell\s+me\s+more/,
+    /explain\s+further/,
+    /\bwhy\b/,
+    /\bhow\b/,
+    /\bexample/,
+    /can\s+you\s+elaborate/
+  ];
+  return triggers.some(regex => regex.test(q));
+}
+
+// Close/dismiss context chip
+$('contextChipClose').addEventListener('click', () => {
+  state.context = null;
+  updateContextUI();
+});
+
+// Periodically check for context expiry (every 10s)
+setInterval(() => {
+  if (state.context) {
+    updateContextUI();
+  }
+}, 10000);
 
 // ── Init ───────────────────────────────────────────────────────────────────────
 async function init() {

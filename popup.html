@@ -246,6 +246,29 @@ body{
 .ask-send:active{transform:scale(.91)}
 .ask-send:disabled{background:var(--muted2);cursor:not-allowed;opacity:.6}
 
+/* Context chip above the input */
+.context-chip-container{
+  display:none;align-items:center;justify-content:space-between;
+  padding:6px 10px;
+  background:var(--accent-soft);
+  border:1px solid rgba(10,132,255,0.15);
+  border-radius:var(--radius-xs);
+  margin-bottom:6px;
+  animation:panelIn .15s ease;
+}
+.context-chip-text{
+  font-size:11px;font-weight:500;color:var(--accent);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  max-width:300px;
+}
+.context-chip-close{
+  background:none;border:none;color:var(--accent);
+  font-size:14px;line-height:1;cursor:pointer;
+  padding:0 2px;opacity:.7;transition:opacity .12s;
+  font-family:var(--font);
+}
+.context-chip-close:hover{opacity:1}
+
 /* Response area */
 .response-wrap{
   background:var(--surface);
@@ -604,6 +627,11 @@ kbd{
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
       TL;DR
     </button>
+  </div>
+
+  <div class="context-chip-container" id="contextChipContainer">
+    <span class="context-chip-text" id="contextChipText">Continuing: Schrödinger equation</span>
+    <button class="context-chip-close" id="contextChipClose" aria-label="Clear context">×</button>
   </div>
 
   <div class="ask-wrap">

@@ -21,6 +21,7 @@ const TOKEN_BUDGET = {
   synonyms:            120,
   explainCode:         220,
   summarizeDiscussion: 350,
+  followUp:            350,
 };
 
 // ── Health check ──────────────────────────────────────────────────────────────
@@ -250,6 +251,17 @@ export const prompts = {
         + `Summarize the main viewpoints and any consensus reached. `
         + `Write exactly 3 bullet points starting with a dash (-). `
         + `Be specific — include the key opinions, not just the topic.`,
+    },
+  ]),
+
+  followUp: (topic, previousResponse, question) => ([
+    { role: 'system', content: SYS },
+    {
+      role: 'user',
+      content: `You are continuing a conversation about: "${topic}"\n\n`
+        + `Previous explanation: ${previousResponse}\n\n`
+        + `User follow-up: ${question}\n\n`
+        + `Continue naturally and clearly. Do not say "not covered on this page". Do not rely on webpage-only grounding.`,
     },
   ]),
 
