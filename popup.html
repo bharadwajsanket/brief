@@ -609,10 +609,16 @@ kbd{
 
 <!-- ── AI Panel ─────────────────────────────────────────── -->
 <div class="panel active" id="panel-ai" role="tabpanel" aria-labelledby="tab-ai">
-  <button class="action-btn primary action-primary" id="btnSummarize">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-    Summarize
-  </button>
+  <div class="pill-row" style="margin-bottom: 2px;">
+    <button class="action-btn primary" id="btnSummarize" style="flex: 1; width: auto; margin-bottom: 0;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      Summarize
+    </button>
+    <button class="action-btn primary" id="btnUnderstandRegion" style="flex: 1; width: auto; margin-bottom: 0; background: #34c759; box-shadow: 0 3px 14px rgba(52, 199, 89, 0.25);">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 4"/></svg>
+      Understand Region
+    </button>
+  </div>
 
   <div class="pill-row">
     <button class="pill-btn" id="btnKeyPoints">
@@ -627,6 +633,23 @@ kbd{
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
       TL;DR
     </button>
+  </div>
+
+  <!-- Selection Preview Container -->
+  <div class="selection-preview-wrap" id="selectionPreviewWrap" style="display: none; background: rgba(0, 0, 0, 0.02); border: 1px dashed var(--border); border-radius: var(--radius-sm); padding: 10px; margin-bottom: 10px; font-family: var(--font);">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 11px;">
+      <span style="font-weight: 600; color: var(--text);" id="previewType">Selection (Prose)</span>
+      <button class="context-chip-close" id="previewClose" style="position: static; margin-left: auto; line-height: 1; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px;">×</button>
+    </div>
+    <div style="font-size: 12px; line-height: 1.4; color: var(--text2); max-height: 80px; overflow-y: auto; font-style: italic;" id="previewText">
+      "Text preview..."
+    </div>
+    <div class="pill-row" style="margin-top: 10px; gap: 4px;" id="previewActions">
+      <button class="pill-btn" id="btnPreviewSummarize" style="font-size: 10.5px; padding: 4px 6px; flex: 1;">Summarize</button>
+      <button class="pill-btn" id="btnPreviewExplain" style="font-size: 10.5px; padding: 4px 6px; flex: 1;">Explain</button>
+      <button class="pill-btn" id="btnPreviewSimplify" style="font-size: 10.5px; padding: 4px 6px; flex: 1;">Simplify</button>
+      <button class="pill-btn" id="btnPreviewExplainCode" style="font-size: 10.5px; padding: 4px 6px; flex: 1; display: none;">Explain Code</button>
+    </div>
   </div>
 
   <div class="context-chip-container" id="contextChipContainer">

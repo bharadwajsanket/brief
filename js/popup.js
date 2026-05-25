@@ -18,7 +18,7 @@ const TOKENS = {
   summarize: 320, keyPoints: 280, explain: 200,
   tldr: 80, ask: 350, explainSelection: 220,
   define: 150, synonyms: 120, explainCode: 220, summarizeDiscussion: 350,
-  followUp: 350,
+  followUp: 350, summarizeSelection: 240, simplifySelection: 200,
 };
 
 // ── DOM ────────────────────────────────────────────────────────────────────────
@@ -247,6 +247,8 @@ const PROMPTS = {
   synonyms:    w => [{ role:'system', content:SYS }, { role:'user', content:`Word: "${w.slice(0,80)}"\n\nList 4 synonyms and 2 antonyms. Exact format:\nSynonyms: word1, word2, word3, word4\nAntonyms: word1, word2\nNothing else.` }],
   explainCode: s => [{ role:'system', content:SYS }, { role:'user', content:`Code:\n\`\`\`\n${s.slice(0,1500)}\n\`\`\`\n\nExplain what this code does in plain English. 2–3 sentences. No bullets. Mention the language if obvious.` }],
   summarizeDiscussion: p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nThis is a discussion or comment thread. Summarize the main viewpoints. Write exactly 3 bullet points starting with "- ". Be specific — include key opinions, not just the topic.` }],
+  summarizeSelection: s => [{ role:'system', content:SYS }, { role:'user', content:`Text:\n"${s.slice(0, 3000)}"\n\nSummarize this text in 2-3 concise sentences. Plain text only.` }],
+  simplifySelection: s => [{ role:'system', content:SYS }, { role:'user', content:`Text:\n"${s.slice(0, 3000)}"\n\nRewrite this in simpler language (maximum 3 sentences). Plain text only.` }],
   followUp: (topic, previousResponse, question) => [
     { role: 'system', content: SYS },
     {
@@ -277,7 +279,7 @@ async function runAI(type, label, extra = '') {
   try {
     let messages;
 
-    if (['explainSelection', 'define', 'synonyms', 'explainCode', 'followUp'].includes(type)) {
+    if (['explainSelection', 'define', 'synonyms', 'explainCode', 'followUp', 'summarizeSelection', 'simplifySelection'].includes(type)) {
       // Selection-only / follow-up actions — no page extraction needed (fast)
       if (type === 'followUp') {
         messages = PROMPTS.followUp(state.context.topic, state.context.lastResponse, extra);
@@ -287,6 +289,8 @@ async function runAI(type, label, extra = '') {
           define:           s => PROMPTS.define(s),
           synonyms:         s => PROMPTS.synonyms(s),
           explainCode:      s => PROMPTS.explainCode(s),
+          summarizeSelection: s => PROMPTS.summarizeSelection(s),
+          simplifySelection: s => PROMPTS.simplifySelection(s),
         };
         messages = promptFns[type](extra);
       }
@@ -373,6 +377,21 @@ function showError(msg) {
 btnKeyPoints.addEventListener('click', () => runAI('keyPoints', 'Key Points'));
 btnExplain.addEventListener('click',   () => runAI('explain',   'Explanation'));
 btnTldr.addEventListener('click',      () => runAI('tldr',      'TL;DR'));
+
+const btnUnderstandRegion = $('btnUnderstandRegion');
+if (btnUnderstandRegion) {
+  btnUnderstandRegion.addEventListener('click', async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id) {
+        await chrome.tabs.sendMessage(tab.id, { action: 'startRegionSelect' });
+      }
+    } catch (err) {
+      console.error('Failed to trigger region selection:', err);
+    }
+    window.close();
+  });
+}
 
 // Ask textarea — auto-resize + send
 askInput.addEventListener('input', () => {
@@ -551,6 +570,44 @@ async function checkPendingAction() {
 
     // Switch to AI tab if not already there
     document.querySelector('[data-tab="ai"]')?.click();
+
+    if (action.type === 'spatialSelection') {
+      const wrap = $('selectionPreviewWrap');
+      const typeEl = $('previewType');
+      const textEl = $('previewText');
+      const codeBtn = $('btnPreviewExplainCode');
+
+      if (wrap && typeEl && textEl && codeBtn) {
+        typeEl.textContent = `Selection (${action.classification || 'mixed'})`;
+        textEl.textContent = `"${action.selection.slice(0, 400)}${action.selection.length > 400 ? '...' : ''}"`;
+
+        if (action.classification === 'code') {
+          codeBtn.style.display = 'inline-flex';
+        } else {
+          codeBtn.style.display = 'none';
+        }
+
+        wrap.style.display = 'block';
+
+        const clearAndBind = (id, fn) => {
+          const btn = $(id);
+          if (!btn) return;
+          const newBtn = btn.cloneNode(true);
+          btn.parentNode.replaceChild(newBtn, btn);
+          newBtn.addEventListener('click', () => {
+            wrap.style.display = 'none';
+            fn();
+          });
+        };
+
+        clearAndBind('btnPreviewSummarize', () => runAI('summarizeSelection', 'Summary', action.selection));
+        clearAndBind('btnPreviewExplain', () => runAI('explainSelection', 'Explanation', action.selection));
+        clearAndBind('btnPreviewSimplify', () => runAI('simplifySelection', 'Simplified', action.selection));
+        clearAndBind('btnPreviewExplainCode', () => runAI('explainCode', 'Code Explained', action.selection));
+        clearAndBind('previewClose', () => {});
+      }
+      return;
+    }
 
     const SEL_ACTIONS = ['explainSelection', 'define', 'synonyms', 'explainCode'];
     const SEL_LABELS  = {
