@@ -14,6 +14,7 @@ Brief is a minimal, elegantly designed native browser companion. Powered by [lla
 - Summarize, extract Key Points, Explain Simply, or get a quick TL;DR
 - Ask any question about the current page
 - Select any text on a page, right-click, and use **Word Intelligence** to Define, get Synonyms, Explain Code, or Summarize Discussions.
+- **Conversational Continuity**: Follow-up questions about Word Intelligence actions continue the conversation naturally using ephemeral context (<10 min session) without strict page grounding.
 - All inference runs on your machine via a local llama.cpp server (Friday AI)
 
 **Clean URL tab** — tracker-free links
