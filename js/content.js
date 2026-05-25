@@ -520,180 +520,42 @@
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
 
+  console.log('[Brief] content.js loaded');
+
   function initBriefUI() {
-    if (document.getElementById('brief-orb-shadow-container')) return;
-
-    const container = document.createElement('div');
-    container.id = 'brief-orb-shadow-container';
-    container.style.cssText = 'position: fixed; bottom: 0; right: 0; width: auto; height: auto; z-index: 2147483637; pointer-events: none;';
-    const shadow = container.attachShadow({ mode: 'open' });
-    document.documentElement.appendChild(container);
-
-    const style = document.createElement('style');
-    style.textContent = getOrbStyles();
-    shadow.appendChild(style);
-
+    if (window.__briefOrbInjected) return;
+    console.log('[Brief] injecting orb');
     const orb = document.createElement('div');
-    orb.id = 'brief-orb';
-    orb.innerHTML = `
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
-      </svg>
-    `;
-    orb.style.pointerEvents = 'auto';
-    shadow.appendChild(orb);
+    orb.id = 'brief-orb-debug';
+    orb.textContent = '⚡ Brief';
+    orb.style.position = 'fixed';
+    orb.style.right = '20px';
+    orb.style.bottom = '20px';
+    orb.style.zIndex = '999999';
+    orb.style.background = '#111';
+    orb.style.color = '#fff';
+    orb.style.padding = '12px 16px';
+    orb.style.borderRadius = '999px';
+    orb.style.fontFamily = 'sans-serif';
+    orb.style.cursor = 'pointer';
 
-    const palette = document.createElement('div');
-    palette.className = 'brief-palette';
-    shadow.appendChild(palette);
+    orb.onclick = () => alert('Brief working');
 
-    orb.addEventListener('click', e => {
-      e.stopPropagation();
-      togglePalette();
-    });
-
-    const accent = getThemeColor();
-    const accentSoft = hexToRgba(accent, 0.12);
-    const accentGlow = hexToRgba(accent, 0.28);
-    container.style.setProperty('--brief-accent', accent);
-    container.style.setProperty('--brief-accent-soft', accentSoft);
-    container.style.setProperty('--brief-accent-glow', accentGlow);
+    document.body.appendChild(orb);
+    window.__briefOrbInjected = true;
+    console.log('[Brief] orb injected');
   }
-
-  function togglePalette() {
-    const shadow = document.getElementById('brief-orb-shadow-container')?.shadowRoot;
-    if (!shadow) return;
-    const palette = shadow.querySelector('.brief-palette');
-    const orb = shadow.getElementById('brief-orb');
-    if (!palette) return;
-
-    const visible = palette.classList.contains('visible');
-    if (visible) {
-      closePalette();
-    } else {
-      updatePaletteContent(palette);
-      palette.classList.add('visible');
-      orb.classList.add('active');
-    }
-  }
-
-  function closePalette() {
-    const shadow = document.getElementById('brief-orb-shadow-container')?.shadowRoot;
-    if (!shadow) return;
-    const palette = shadow.querySelector('.brief-palette');
-    const orb = shadow.getElementById('brief-orb');
-    if (palette) {
-      palette.classList.remove('visible');
-    }
-    if (orb) {
-      orb.classList.remove('active');
-    }
-  }
-
-  function updatePaletteContent(palette) {
-    const selText = getSelectedText();
-    const isFocusActive = document.documentElement.hasAttribute('data-brief-focus');
-
-    let html = `
-      <div class="brief-palette-header">
-        <span>Brief layer</span>
-      </div>
-      <button class="brief-palette-btn" id="btn-summarize">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
-        Summarize Page
-      </button>
-      <button class="brief-palette-btn${isFocusActive ? ' active' : ''}" id="btn-focus">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-        ${isFocusActive ? 'Exit Focus Mode' : 'Focus Mode'}
-      </button>
-      <button class="brief-palette-btn" id="btn-clean">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-        Clean URL
-      </button>
-      <button class="brief-palette-btn" id="btn-region">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 4"/></svg>
-        Understand Region
-      </button>
-    `;
-
-    if (selText.length >= 3) {
-      html += `
-        <button class="brief-palette-btn" id="btn-define">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          Define Selection
-        </button>
-      `;
-    }
-
-    palette.innerHTML = html;
-
-    palette.querySelector('#btn-summarize').addEventListener('click', () => {
-      closePalette();
-      runSummarizePage();
-    });
-
-    palette.querySelector('#btn-focus').addEventListener('click', () => {
-      const isAct = document.documentElement.hasAttribute('data-brief-focus');
-      window.__briefFocusMode(!isAct);
-      updatePaletteContent(palette);
-    });
-
-    palette.querySelector('#btn-clean').addEventListener('click', () => {
-      closePalette();
-      chrome.runtime.sendMessage({ what: 'cc:copyCleanUrl' });
-    });
-
-    palette.querySelector('#btn-region').addEventListener('click', () => {
-      closePalette();
-      if (typeof window.__briefStartRegionSelect === 'function') {
-        window.__briefStartRegionSelect();
-      }
-    });
-
-    if (selText.length >= 3) {
-      palette.querySelector('#btn-define').addEventListener('click', () => {
-        closePalette();
-        if (typeof window.__briefShowResultPanel === 'function') {
-          window.__briefShowResultPanel('Selection Definition', selText, 'define');
-        }
-      });
-    }
-  }
-
-  async function runSummarizePage() {
-    try {
-      const res = await chrome.runtime.sendMessage({ what: 'cc:extractPage' });
-      if (typeof window.__briefShowResultPanel === 'function') {
-        window.__briefShowResultPanel('Page Summary', res?.data?.text || 'Could not extract page text content.', 'summarize');
-      }
-    } catch (err) {
-      console.error('runSummarizePage failed:', err);
-    }
-  }
-
-  // Close palette on window-level click outside
-  window.addEventListener('click', e => {
-    const shadow = document.getElementById('brief-orb-shadow-container')?.shadowRoot;
-    if (!shadow) return;
-    const orb = shadow.getElementById('brief-orb');
-    const palette = shadow.querySelector('.brief-palette');
-    const path = e.composedPath();
-    if (path.includes(orb) || path.includes(palette)) return;
-    closePalette();
-  });
-
-  window.addEventListener('keydown', e => {
-    if (e.key === 'Escape') {
-      closePalette();
-    }
-  });
 
   // ── Startup ────────────────────────────────────────────────────────────────
   function onStartup() {
     checkAmp();
     sweepNags();
     relayThemeColor();
-    initBriefUI();
+    if (document.body) {
+      initBriefUI();
+    } else {
+      document.addEventListener('DOMContentLoaded', initBriefUI);
+    }
   }
 
   if (document.readyState === 'loading') {
@@ -708,13 +570,5 @@
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
   setTimeout(() => observer.disconnect(), 30000);
-
-  // Watch to ensure our orb remains present (in case SPA or page scripts clean the body/html)
-  const uiObserver = new MutationObserver(() => {
-    if (!document.getElementById('brief-orb-shadow-container')) {
-      initBriefUI();
-    }
-  });
-  uiObserver.observe(document.documentElement, { childList: true });
 
 })();
