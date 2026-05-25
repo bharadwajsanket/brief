@@ -7,7 +7,6 @@
   let startX = 0, startY = 0;
   let selectedRect = null;
   let extractedContent = null;
-  let shadowRoot = null;
   let container = null;
   let currentPort = null;
 
@@ -21,6 +20,7 @@
   function onEscPress(e) {
     if (e.key === 'Escape') {
       try {
+        console.log('[Brief] Escape key pressed, cleaning up');
         cleanUp();
       } catch (err) {
         console.error('Brief onEscPress failed:', err);
@@ -28,37 +28,35 @@
     }
   }
 
-  function hasActivePanel() {
-    return shadowRoot && shadowRoot.getElementById('briefPanelCard')?.classList.contains('visible');
+  function ensureStyles() {
+    if (document.getElementById('brief-spatial-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'brief-spatial-styles';
+    style.textContent = getStyles();
+    document.head.appendChild(style);
   }
 
-  function ensureShadowRoot() {
-    if (container && shadowRoot) return;
+  function ensureContainer() {
+    if (container) return;
     container = document.createElement('div');
     container.id = 'brief-spatial-container';
-    container.style.cssText = 'position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 2147483640;';
-    shadowRoot = container.attachShadow({ mode: 'open' });
-    document.documentElement.appendChild(container);
-
-    const style = document.createElement('style');
-    style.textContent = getStyles();
-    shadowRoot.appendChild(style);
-
-    applyPageTheme();
+    document.body.appendChild(container);
   }
 
   function startSelectionMode() {
     try {
+      console.log('[Brief] region select started');
       active = true;
       dragging = false;
 
-      ensureShadowRoot();
+      ensureStyles();
+      ensureContainer();
 
       // Create full screen overlay
       const overlay = document.createElement('div');
       overlay.id = 'brief-spatial-overlay';
       overlay.addEventListener('mousedown', onMouseDown);
-      shadowRoot.appendChild(overlay);
+      container.appendChild(overlay);
 
       // Force style recalculation and animate fade-in
       requestAnimationFrame(() => {
@@ -71,33 +69,6 @@
     }
   }
 
-  function applyPageTheme() {
-    const accent = getThemeColor();
-    const accentSoft = hexToRgba(accent, 0.12);
-    const accentGlow = hexToRgba(accent, 0.28);
-    shadowRoot.host.style.setProperty('--brief-accent', accent);
-    shadowRoot.host.style.setProperty('--brief-accent-soft', accentSoft);
-    shadowRoot.host.style.setProperty('--brief-accent-glow', accentGlow);
-  }
-
-  function getThemeColor() {
-    const meta = document.querySelector('meta[name="theme-color"]');
-    const color = meta?.content?.trim();
-    if (color && /^#[0-9a-f]{3,8}$/i.test(color)) {
-      return color;
-    }
-    return '#0a84ff'; // default Brief blue
-  }
-
-  function hexToRgba(hex, alpha) {
-    let c = hex.substring(1);
-    if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
-    const r = parseInt(c.substring(0, 2), 16);
-    const g = parseInt(c.substring(2, 4), 16);
-    const b = parseInt(c.substring(4, 6), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  }
-
   function onMouseDown(e) {
     if (e.button !== 0) return; // Only left click
     e.preventDefault();
@@ -105,13 +76,13 @@
     startX = e.clientX;
     startY = e.clientY;
 
-    // Create selection rect element in Shadow DOM
+    // Create selection rect element
     const rectEl = document.createElement('div');
     rectEl.id = 'brief-selection-rect';
     rectEl.className = 'brief-spatial-rect';
     rectEl.style.left = `${startX + window.scrollX}px`;
     rectEl.style.top = `${startY + window.scrollY}px`;
-    shadowRoot.appendChild(rectEl);
+    container.appendChild(rectEl);
 
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
@@ -119,7 +90,7 @@
 
   function onMouseMove(e) {
     if (!dragging) return;
-    const rectEl = shadowRoot.getElementById('brief-selection-rect');
+    const rectEl = document.getElementById('brief-selection-rect');
     if (!rectEl) return;
 
     const currentX = e.clientX;
@@ -143,13 +114,13 @@
     window.removeEventListener('mousemove', onMouseMove);
     window.removeEventListener('mouseup', onMouseUp);
 
-    const rectEl = shadowRoot.getElementById('brief-selection-rect');
+    const rectEl = document.getElementById('brief-selection-rect');
     if (!rectEl) return;
 
     const finalRect = rectEl.getBoundingClientRect();
     
     rectEl.remove();
-    const overlay = shadowRoot.getElementById('brief-spatial-overlay');
+    const overlay = document.getElementById('brief-spatial-overlay');
     if (overlay) {
       overlay.remove();
     }
@@ -159,9 +130,15 @@
     if (finalRect.width > 10 && finalRect.height > 10) {
       selectedRect = finalRect;
       extractedContent = extractTextFromRegion(finalRect);
-      const textLength = (extractedContent.proseText + extractedContent.codeText).trim().length;
+      const combinedText = (extractedContent.proseText + '\n' + extractedContent.codeText).trim();
+      const textLength = combinedText.length;
+
+      console.log('[Brief] extraction complete');
+      console.log(extractedContent);
 
       if (textLength > 0) {
+        // Temporarily alert extracted text (Phase 3)
+        // alert(combinedText.slice(0, 300));
         showActionPanel(finalRect);
       } else {
         cleanUp();
@@ -194,7 +171,10 @@
           const className = node.className || '';
           const id = node.id || '';
           const isNoise = /cookie|popup|modal|overlay|banner|advert|share|comment|sidebar|-ad-/i.test(className + ' ' + id) ||
-                          node.closest('#brief-spatial-container');
+                          node.id === 'brief-spatial-container' ||
+                          node.closest('#briefPanelCard') ||
+                          node.id === 'brief-orb-debug' ||
+                          node.id === 'brief-palette-debug';
           if (isNoise) return NodeFilter.FILTER_REJECT;
 
           const style = window.getComputedStyle(node);
@@ -296,10 +276,10 @@
       </div>
     `;
 
-    shadowRoot.appendChild(panel);
+    container.appendChild(panel);
 
     // Setup action buttons based on classification
-    const actionsContainer = shadowRoot.getElementById('briefPanelActions');
+    const actionsContainer = document.getElementById('briefPanelActions');
     const actions = getActionsForClass(classification);
 
     actions.forEach(act => {
@@ -311,7 +291,7 @@
     });
 
     // Close button click listener
-    shadowRoot.getElementById('briefPanelClose').addEventListener('click', cleanUp);
+    document.getElementById('briefPanelClose').addEventListener('click', cleanUp);
 
     // Click outside listener
     setTimeout(() => {
@@ -376,7 +356,7 @@
   }
 
   function showAskInput(text) {
-    const actionsContainer = shadowRoot.getElementById('briefPanelActions');
+    const actionsContainer = document.getElementById('briefPanelActions');
     actionsContainer.innerHTML = `
       <div class="brief-panel-ask-wrap">
         <input type="text" class="brief-panel-ask-input" id="briefPanelAskInput" placeholder="Ask about this selection..." />
@@ -386,8 +366,8 @@
       </div>
     `;
 
-    const input = shadowRoot.getElementById('briefPanelAskInput');
-    const send = shadowRoot.getElementById('briefPanelAskSend');
+    const input = document.getElementById('briefPanelAskInput');
+    const send = document.getElementById('briefPanelAskSend');
 
     input.focus();
     input.addEventListener('keydown', e => {
@@ -403,10 +383,10 @@
   }
 
   function startAICompletion(messages, label) {
-    const responseWrap = shadowRoot.getElementById('briefPanelResponseWrap');
-    const responseTag = shadowRoot.getElementById('briefPanelResponseTag');
-    const responseBody = shadowRoot.getElementById('briefPanelResponseBody');
-    const copyBtn = shadowRoot.getElementById('briefPanelCopy');
+    const responseWrap = document.getElementById('briefPanelResponseWrap');
+    const responseTag = document.getElementById('briefPanelResponseTag');
+    const responseBody = document.getElementById('briefPanelResponseBody');
+    const copyBtn = document.getElementById('briefPanelCopy');
 
     responseTag.textContent = label;
     responseBody.innerHTML = '<div class="brief-skeleton"></div><div class="brief-skeleton"></div><div class="brief-skeleton" style="width:68%"></div>';
@@ -418,6 +398,7 @@
       currentPort.disconnect();
     }
 
+    console.log('[Brief] AI stream started');
     currentPort = chrome.runtime.connect({ name: 'brief-ai-stream' });
     currentPort.postMessage({ messages, maxTokens: 350 });
 
@@ -459,7 +440,7 @@
   }
 
   function positionPanel(rect) {
-    const panel = shadowRoot.getElementById('briefPanelCard');
+    const panel = document.getElementById('briefPanelCard');
     if (!panel) return;
 
     const panelWidth = 320;
@@ -479,8 +460,8 @@
         top = rect.top + window.scrollY - panelHeight - 8;
       }
     } else {
-      // Default to bottom-right of viewport, elevated above floating orb position
-      left = viewportWidth - panelWidth - 24;
+      // Default to bottom-right viewport, above orb (orb bottom is ~20px)
+      left = viewportWidth - panelWidth - 20;
       top = window.scrollY + viewportHeight - panelHeight - 80;
       left = Math.max(margin, Math.min(left, viewportWidth - panelWidth - margin));
       top = Math.max(window.scrollY + margin, top);
@@ -488,12 +469,11 @@
 
     panel.style.left = `${left}px`;
     panel.style.top = `${top}px`;
-    panel.classList.add('visible');
   }
 
   function onClickOutside(e) {
     if (!container) return;
-    if (e.composedPath().includes(container)) return;
+    if (container.contains(e.target) || e.target.closest('#brief-orb-debug') || e.target.closest('#brief-palette-debug')) return;
     cleanUp();
   }
 
@@ -523,7 +503,6 @@
         container.remove();
       } catch {}
       container = null;
-      shadowRoot = null;
     }
   }
 
@@ -574,26 +553,17 @@
   // ── CSS Styles ───────────────────────────────────────────────────────────────
   function getStyles() {
     return `
-      :host {
-        --brief-accent: #0a84ff;
-        --brief-accent-soft: rgba(10, 132, 255, 0.12);
-        --brief-accent-glow: rgba(10, 132, 255, 0.28);
-      }
-      
       #brief-spatial-overlay {
         position: fixed;
         top: 0;
         left: 0;
         width: 100vw;
         height: 100vh;
-        background: rgba(0, 0, 0, 0.12);
-        backdrop-filter: blur(1.5px);
-        -webkit-backdrop-filter: blur(1.5px);
+        background: rgba(0, 0, 0, 0.15);
         z-index: 2147483640;
         cursor: crosshair;
         opacity: 0;
         transition: opacity 0.2s ease;
-        pointer-events: auto;
       }
       
       #brief-spatial-overlay.active {
@@ -602,69 +572,41 @@
       
       .brief-spatial-rect {
         position: absolute;
-        border: 2px solid var(--brief-accent);
-        background: var(--brief-accent-soft);
-        border-radius: 8px;
-        box-shadow: 0 0 14px var(--brief-accent-glow);
+        border: 2px solid #0a84ff;
+        background: rgba(10, 132, 255, 0.15);
+        border-radius: 4px;
         pointer-events: none;
         z-index: 2147483641;
-        transition: none;
       }
       
       .brief-panel-card {
         position: absolute;
         z-index: 2147483645;
         width: 320px;
-        background: rgba(255, 255, 255, 0.82);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border: 1px solid rgba(0, 0, 0, 0.08);
-        border-radius: 12px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.06);
-        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
-        color: #1c1c1e;
+        background: #1e1e20;
+        border: 1px solid #333;
+        border-radius: 8px;
+        color: #fff;
+        font-family: sans-serif;
         overflow: hidden;
-        opacity: 0;
-        transform: scale(0.96) translateY(4px);
-        transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         display: flex;
         flex-direction: column;
-      }
-      
-      @media (prefers-color-scheme: dark) {
-        .brief-panel-card {
-          background: rgba(30, 30, 32, 0.85);
-          border-color: rgba(255, 255, 255, 0.08);
-          color: #f2f2f7;
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), 0 1px 4px rgba(0, 0, 0, 0.2);
-        }
-      }
-      
-      .brief-panel-card.visible {
-        opacity: 1;
-        transform: scale(1) translateY(0);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
       }
       
       .brief-panel-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 10px 14px;
-        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-      }
-      
-      @media (prefers-color-scheme: dark) {
-        .brief-panel-header {
-          border-bottom-color: rgba(255, 255, 255, 0.05);
-        }
+        padding: 8px 12px;
+        border-bottom: 1px solid #333;
       }
       
       .brief-panel-title {
         font-size: 11px;
-        font-weight: 700;
-        color: var(--brief-accent);
+        font-weight: bold;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        color: #0a84ff;
       }
       
       .brief-panel-close {
@@ -675,236 +617,107 @@
         cursor: pointer;
         padding: 0;
         line-height: 1;
-        opacity: 0.7;
-        transition: opacity 0.12s;
-      }
-      
-      .brief-panel-close:hover {
-        opacity: 1;
       }
       
       .brief-panel-actions {
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
-        padding: 12px;
+        padding: 10px;
+        border-bottom: 1px solid #333;
       }
       
       .brief-action-btn {
         flex: 1;
-        min-width: 84px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 7px 10px;
-        background: rgba(0, 0, 0, 0.03);
-        border: 1px solid rgba(0, 0, 0, 0.04);
-        border-radius: 8px;
-        font-family: inherit;
+        min-width: 80px;
+        padding: 6px;
+        background: #2a2a2c;
+        border: 1px solid #444;
+        border-radius: 6px;
+        color: #fff;
         font-size: 11px;
-        font-weight: 600;
-        color: #3a3a3c;
         cursor: pointer;
-        transition: all 0.12s ease;
-      }
-      
-      @media (prefers-color-scheme: dark) {
-        .brief-action-btn {
-          background: rgba(255, 255, 255, 0.04);
-          border-color: rgba(255, 255, 255, 0.03);
-          color: #c7c7cc;
-        }
+        text-align: center;
+        font-family: sans-serif;
       }
       
       .brief-action-btn:hover {
-        background: var(--brief-accent-soft);
-        border-color: rgba(10, 132, 255, 0.15);
-        color: var(--brief-accent);
-      }
-      
-      .brief-action-btn:active {
-        transform: scale(0.97);
-      }
-      
-      .brief-panel-ask-wrap {
-        display: flex;
-        width: 100%;
-        position: relative;
-        align-items: center;
-      }
-      
-      .brief-panel-ask-input {
-        width: 100%;
-        padding: 8px 32px 8px 10px;
-        background: rgba(0, 0, 0, 0.02);
-        border: 1px solid rgba(0, 0, 0, 0.08);
-        border-radius: 8px;
-        font-family: inherit;
-        font-size: 11.5px;
-        color: inherit;
-        outline: none;
-        box-sizing: border-box;
-      }
-      
-      @media (prefers-color-scheme: dark) {
-        .brief-panel-ask-input {
-          background: rgba(255, 255, 255, 0.02);
-          border-color: rgba(255, 255, 255, 0.08);
-        }
-      }
-      
-      .brief-panel-ask-input:focus {
-        border-color: var(--brief-accent);
-      }
-      
-      .brief-panel-ask-send {
-        position: absolute;
-        right: 5px;
-        background: var(--brief-accent);
-        border: none;
-        color: #fff;
-        width: 22px;
-        height: 22px;
-        border-radius: 6px;
-        display: grid;
-        place-items: center;
-        cursor: pointer;
-        transition: opacity 0.12s;
-      }
-      
-      .brief-panel-ask-send:hover {
-        opacity: 0.9;
+        background: #3a3a3c;
       }
       
       .brief-panel-response-wrap {
         display: none;
         flex-direction: column;
-        border-top: 1px solid rgba(0, 0, 0, 0.05);
-        max-height: 240px;
-      }
-      
-      @media (prefers-color-scheme: dark) {
-        .brief-panel-response-wrap {
-          border-top-color: rgba(255, 255, 255, 0.05);
-        }
       }
       
       .brief-panel-response-wrap.visible {
         display: flex;
-        animation: panelIn 0.2s ease;
       }
       
       .brief-panel-response-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 8px 14px;
-        background: rgba(0, 0, 0, 0.01);
-        border-bottom: 1px solid rgba(0, 0, 0, 0.03);
-      }
-      
-      @media (prefers-color-scheme: dark) {
-        .brief-panel-response-header {
-          border-bottom-color: rgba(255, 255, 255, 0.03);
-        }
+        padding: 6px 12px;
+        background: #111;
+        border-bottom: 1px solid #333;
       }
       
       .brief-panel-response-tag {
-        font-size: 9.5px;
-        font-weight: 700;
+        font-size: 10px;
         color: #8e8e93;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
       }
       
       .brief-panel-copy {
         background: none;
         border: none;
-        color: var(--brief-accent);
-        font-family: inherit;
-        font-size: 9.5px;
-        font-weight: 700;
+        color: #0a84ff;
+        font-size: 10px;
         cursor: pointer;
-        padding: 2px 6px;
-        border-radius: 4px;
-        transition: background 0.12s;
-      }
-      
-      .brief-panel-copy:hover {
-        background: var(--brief-accent-soft);
       }
       
       .brief-panel-response-body {
-        padding: 12px 14px;
-        font-size: 11.5px;
-        line-height: 1.6;
-        color: inherit;
+        padding: 10px 12px;
+        font-size: 12px;
+        line-height: 1.5;
         overflow-y: auto;
-        white-space: pre-wrap;
-        word-break: break-word;
         max-height: 160px;
-      }
-      
-      .brief-panel-response-body::-webkit-scrollbar {
-        width: 4px;
-      }
-      .brief-panel-response-body::-webkit-scrollbar-track {
-        background: transparent;
-      }
-      .brief-panel-response-body::-webkit-scrollbar-thumb {
-        background: rgba(0, 0, 0, 0.08);
-        border-radius: 2px;
-      }
-      @media (prefers-color-scheme: dark) {
-        .brief-panel-response-body::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.08);
-        }
+        white-space: pre-wrap;
       }
       
       .brief-cursor {
         display: inline-block;
         width: 2px;
         height: 1.1em;
-        background: var(--brief-accent);
+        background: #0a84ff;
         vertical-align: text-bottom;
         margin-left: 2px;
-        border-radius: 1px;
         animation: blink 0.7s step-end infinite;
       }
       
       @keyframes blink {
-        0%, 100% { opacity: 1; }
         50% { opacity: 0; }
       }
       
       .brief-skeleton {
-        height: 10px;
-        background: linear-gradient(90deg, rgba(0,0,0,0.03) 25%, rgba(0,0,0,0.06) 50%, rgba(0,0,0,0.03) 75%);
-        background-size: 200% 100%;
-        border-radius: 5px;
+        height: 8px;
+        background: #333;
         margin-bottom: 6px;
-        animation: shimmer 1.5s ease-in-out infinite;
-      }
-      
-      @media (prefers-color-scheme: dark) {
-        .brief-skeleton {
-          background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 75%);
-        }
-      }
-      
-      @keyframes shimmer {
-        0% { background-position: 200% 0; }
-        100% { background-position: -200% 0; }
+        border-radius: 4px;
       }
       
       .brief-skeleton:last-child {
         width: 60%;
-        margin-bottom: 0;
       }
-      
-      @keyframes panelIn {
-        from { opacity: 0; transform: translateY(5px); }
-        to { opacity: 1; transform: translateY(0); }
+
+      /* Phase 6 visual polish */
+      @supports (backdrop-filter: blur(20px)) {
+        .brief-panel-card {
+          background: rgba(30, 30, 32, 0.85);
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
+          border-color: rgba(255, 255, 255, 0.08);
+        }
       }
     `;
   }
@@ -922,9 +735,10 @@
   window.__briefShowResultPanel = function (title, text, actionType) {
     try {
       active = true;
-      ensureShadowRoot();
+      ensureStyles();
+      ensureContainer();
 
-      const existingPanel = shadowRoot.getElementById('briefPanelCard');
+      const existingPanel = document.getElementById('briefPanelCard');
       if (existingPanel) existingPanel.remove();
 
       const panel = document.createElement('div');
@@ -944,9 +758,9 @@
           <div class="brief-panel-response-body" id="briefPanelResponseBody"></div>
         </div>
       `;
-      shadowRoot.appendChild(panel);
+      container.appendChild(panel);
 
-      shadowRoot.getElementById('briefPanelClose').addEventListener('click', cleanUp);
+      document.getElementById('briefPanelClose').addEventListener('click', cleanUp);
       
       selectedRect = null;
       positionPanel(null);
