@@ -41,7 +41,6 @@ import { toggleToolbarIcon } from './action.js';
 // ── CleanCopy AI imports ───────────────────────────────────────────────────
 import { fullClean, detectAmp } from './url-cleaner.js';
 import { bumpCleaned, bumpRedirects, bumpAmp, getStats } from './stats.js';
-import { complete } from './ai.js';
 
 /******************************************************************************/
 
@@ -583,36 +582,77 @@ const isFullyInitialized = start().then(() => {
 }).then(restart => { if (restart === true) runtime.reload(); });
 
 // ── Spatial AI stream port connection ─────────────────────────────────────────
-chrome.runtime.onConnect.addListener(port => {
+const LLAMA_CHAT_URL = 'http://127.0.0.1:8080/v1/chat/completions';
+
+async function streamAiInServiceWorker(messages, maxTokens, port, signal) {
+  const ctrl = new AbortController();
+  if (signal) {
+    signal.addEventListener('abort', () => ctrl.abort());
+  }
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+
+  try {
+    const res = await fetch(LLAMA_CHAT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'local',
+        messages,
+        temperature: 0.35,
+        max_tokens: maxTokens || 350,
+        stream: true,
+      }),
+      signal: ctrl.signal,
+    });
+
+    clearTimeout(timer);
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`AI error ${res.status}: ${txt.slice(0, 120)}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunkText = decoder.decode(value, { stream: true });
+      for (const line of chunkText.split('\n')) {
+        const t = line.trim();
+        if (!t.startsWith('data:')) continue;
+        const json = t.slice(5).trim();
+        if (json === '[DONE]') break;
+        try {
+          const delta = JSON.parse(json)?.choices?.[0]?.delta?.content ?? '';
+          if (delta) {
+            port.postMessage({ chunk: delta });
+          }
+        } catch {}
+      }
+    }
+    try {
+      port.postMessage({ done: true });
+    } catch {}
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name !== 'AbortError') {
+      try {
+        port.postMessage({ error: err.message || 'AI request failed' });
+      } catch {}
+    }
+  }
+}
+
+runtime.onConnect.addListener(port => {
   if (port.name === 'brief-ai-stream') {
     const controller = new AbortController();
     port.onDisconnect.addListener(() => {
       controller.abort();
     });
     port.onMessage.addListener(async msg => {
-      try {
-        const { messages, maxTokens } = msg;
-        await complete(messages, {
-          maxTokens: maxTokens || 350,
-          signal: controller.signal,
-          onChunk: (chunk) => {
-            try {
-              port.postMessage({ chunk });
-            } catch {
-              controller.abort();
-            }
-          }
-        });
-        try {
-          port.postMessage({ done: true });
-        } catch {}
-      } catch (err) {
-        if (err.name !== 'AbortError') {
-          try {
-            port.postMessage({ error: err.message || 'AI request failed' });
-          } catch {}
-        }
-      }
+      const { messages, maxTokens } = msg;
+      await streamAiInServiceWorker(messages, maxTokens, port, controller.signal);
     });
   }
 });

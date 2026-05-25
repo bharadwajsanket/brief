@@ -14,35 +14,53 @@
   // Keycode/key name
   const ACTIVATION_KEY = 'Alt'; // Option on macOS triggers Alt keydown
 
-  // Set up listeners
-  window.addEventListener('keydown', onKeyDown);
-  window.addEventListener('keyup', onKeyUp);
-  window.addEventListener('keydown', onEscPress);
+  // Set up listeners safely
+  try {
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('keydown', onEscPress);
+  } catch (err) {
+    console.error('Brief Spatial selection listeners binding failed:', err);
+  }
 
   function onKeyDown(e) {
     if (e.key !== ACTIVATION_KEY) return;
     if (active) return;
     
-    // Check if focused in an input/textarea
-    const activeEl = document.activeElement;
-    if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) {
-      return;
-    }
+    try {
+      // Check if focused in an input/textarea
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) {
+        return;
+      }
 
-    startSelectionMode();
+      startSelectionMode();
+    } catch (err) {
+      console.error('Brief onKeyDown failed:', err);
+      cleanUp();
+    }
   }
 
   function onKeyUp(e) {
     if (e.key !== ACTIVATION_KEY) return;
-    // Release Option key cancels inactive selection mode
-    if (active && !dragging && !hasActivePanel()) {
+    try {
+      // Release Option key cancels inactive selection mode
+      if (active && !dragging && !hasActivePanel()) {
+        cleanUp();
+      }
+    } catch (err) {
+      console.error('Brief onKeyUp failed:', err);
       cleanUp();
     }
   }
 
   function onEscPress(e) {
     if (e.key === 'Escape') {
-      cleanUp();
+      try {
+        cleanUp();
+      } catch (err) {
+        console.error('Brief onEscPress failed:', err);
+      }
     }
   }
 
@@ -51,35 +69,40 @@
   }
 
   function startSelectionMode() {
-    active = true;
-    dragging = false;
+    try {
+      active = true;
+      dragging = false;
 
-    // Create container and Shadow DOM
-    container = document.createElement('div');
-    container.id = 'brief-spatial-container';
-    container.style.cssText = 'position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 2147483640;';
-    shadowRoot = container.attachShadow({ mode: 'open' });
-    document.documentElement.appendChild(container);
+      // Create container and Shadow DOM
+      container = document.createElement('div');
+      container.id = 'brief-spatial-container';
+      container.style.cssText = 'position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 2147483640;';
+      shadowRoot = container.attachShadow({ mode: 'open' });
+      document.documentElement.appendChild(container);
 
-    // Apply styles to shadow DOM
-    const style = document.createElement('style');
-    style.textContent = getStyles();
-    shadowRoot.appendChild(style);
+      // Apply styles to shadow DOM
+      const style = document.createElement('style');
+      style.textContent = getStyles();
+      shadowRoot.appendChild(style);
 
-    // Create full screen overlay
-    const overlay = document.createElement('div');
-    overlay.id = 'brief-spatial-overlay';
-    overlay.addEventListener('mousedown', onMouseDown);
-    shadowRoot.appendChild(overlay);
+      // Create full screen overlay
+      const overlay = document.createElement('div');
+      overlay.id = 'brief-spatial-overlay';
+      overlay.addEventListener('mousedown', onMouseDown);
+      shadowRoot.appendChild(overlay);
 
-    // Force style recalculation and animate fade-in
-    requestAnimationFrame(() => {
-      overlay.classList.add('active');
-      document.body.style.cursor = 'crosshair';
-    });
+      // Force style recalculation and animate fade-in
+      requestAnimationFrame(() => {
+        if (overlay) overlay.classList.add('active');
+        document.body.style.cursor = 'crosshair';
+      });
 
-    // Detect theme color of page
-    applyPageTheme();
+      // Detect theme color of page
+      applyPageTheme();
+    } catch (err) {
+      console.error('Brief startSelectionMode failed:', err);
+      cleanUp();
+    }
   }
 
   function applyPageTheme() {
@@ -503,18 +526,27 @@
     active = false;
     dragging = false;
 
-    window.removeEventListener('mousemove', onMouseMove);
-    window.removeEventListener('mouseup', onMouseUp);
-    document.removeEventListener('click', onClickOutside);
-    document.body.style.removeProperty('cursor');
+    try {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('click', onClickOutside);
+    } catch {}
+
+    try {
+      document.body.style.removeProperty('cursor');
+    } catch {}
 
     if (currentPort) {
-      currentPort.disconnect();
+      try {
+        currentPort.disconnect();
+      } catch {}
       currentPort = null;
     }
 
     if (container) {
-      container.remove();
+      try {
+        container.remove();
+      } catch {}
       container = null;
       shadowRoot = null;
     }
