@@ -108,15 +108,32 @@
         [data-brief-focus] main,
         [data-brief-focus] [role="main"],
         [data-brief-focus] .post-content,
-        [data-brief-focus] .article-content {
-          max-width: 680px !important;
-          margin: 48px auto !important;
+        [data-brief-focus] .article-content,
+        [data-brief-focus] .entry-content,
+        [data-brief-focus] .post-body,
+        [data-brief-focus] .story-body {
+          max-width: 700px !important;
+          margin: 64px auto !important;
           font-size: 19px !important;
-          line-height: 1.85 !important;
+          line-height: 1.9 !important;
+          letter-spacing: 0.01em !important;
           color: #1a1a1c !important;
-          font-family: Georgia, "Times New Roman", serif !important;
-          padding: 0 24px !important;
-          transition: all 0.5s ease !important;
+          font-family: Georgia, 'Times New Roman', serif !important;
+          padding: 0 28px !important;
+          transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+        [data-brief-focus] pre,
+        [data-brief-focus] code {
+          font-size: 14px !important;
+          line-height: 1.6 !important;
+          max-width: 100% !important;
+          overflow-x: auto !important;
+        }
+        [data-brief-focus] img {
+          max-width: 100% !important;
+          height: auto !important;
+          border-radius: 8px !important;
+          margin: 16px 0 !important;
         }
       `;
       document.head.appendChild(style);
@@ -127,15 +144,6 @@
       return false;
     }
   };
-
-  // ── Trigger Region selection from popup message ────────────────────────────
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === 'startRegionSelect') {
-      if (typeof window.__briefStartRegionSelect === 'function') {
-        window.__briefStartRegionSelect();
-      }
-    }
-  });
 
   // ── Startup ────────────────────────────────────────────────────────────────
   function onStartup() {

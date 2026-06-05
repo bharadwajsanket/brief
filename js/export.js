@@ -1,7 +1,7 @@
 /*
- * Brief — export.js
- * Pure module. No browser APIs except Blob/URL (safe in popup context).
- * Converts AI responses to downloadable Markdown or JSON.
+ * Brief — export.js v4.5.0
+ * Pure module. No browser APIs except Blob/URL/clipboard (safe in popup context).
+ * Converts AI responses and insights to Markdown, JSON, or clipboard.
  */
 
 /**
@@ -14,7 +14,7 @@ export function toMarkdown({ tag, text, url, title }) {
     `# ${tag}: ${title || 'Untitled'}`,
     '',
     `> **Source:** [${url}](${url})  `,
-    `> **Generated:** ${ts} · Brief (local AI)`,
+    `> **Generated:** ${ts} · Brief / Local AI`,
     '',
     '---',
     '',
@@ -30,6 +30,7 @@ export function toMarkdown({ tag, text, url, title }) {
 export function toJSON({ tag, text, url, title }) {
   const payload = {
     source: 'Brief',
+    poweredBy: 'Local AI',
     type: tag,
     title: title || '',
     url,
@@ -70,6 +71,38 @@ export function download(format, opts) {
   const a = document.createElement('a');
   a.href     = url;
   a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * Build and download all insights as a single Markdown file.
+ * @param {Array<{ tag: string, text: string, url: string }>} insights
+ */
+export function exportAllInsightsAsMarkdown(insights) {
+  if (!insights || !insights.length) return;
+  const ts = new Date().toLocaleString();
+  const lines = [
+    '# Brief — All Insights',
+    '',
+    `Exported: ${ts}`,
+    `Total: ${insights.length} insight${insights.length !== 1 ? 's' : ''}`,
+    '',
+    '---',
+  ];
+  insights.forEach((ins, i) => {
+    lines.push('');
+    lines.push(`## ${i + 1}. ${ins.tag}`);
+    lines.push('');
+    lines.push(ins.text.trim());
+    if (ins.url) { lines.push(''); lines.push(`_Source: ${ins.url}_`); }
+  });
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'brief-insights.md';
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

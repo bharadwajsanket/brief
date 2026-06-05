@@ -168,7 +168,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     'brief-key-points': 'keyPoints',
   };
   if (PAGE_ACTIONS[info.menuItemId]) {
-    await chrome.storage.session.set({ briefPendingAction: { type: PAGE_ACTIONS[info.menuItemId] } });
+    await chrome.storage.session.set({ briefPendingAction: { type: PAGE_ACTIONS[info.menuItemId], url: tab?.url } });
     chrome.action.openPopup?.().catch(() => {});
     return;
   }
@@ -185,7 +185,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (SEL_ACTIONS[info.menuItemId] && selText) {
     const type = SEL_ACTIONS[info.menuItemId];
     await chrome.storage.session.set({
-      briefPendingAction: { type, selection: selText, prefill: type === 'ask' ? selText : undefined },
+      briefPendingAction: { type, url: tab?.url, selection: selText, prefill: type === 'ask' ? selText : undefined },
     });
     chrome.action.openPopup?.().catch(() => {});
     return;
@@ -228,7 +228,7 @@ function onMessage(request, sender, callback) {
         }
         const hostname = tab?.url ? (() => { try { return new URL(tab.url).hostname; } catch { return ''; } })() : '';
         const level = hostname ? await getFilteringMode(hostname).catch(() => 0) : 0;
-        callback({ stats, urlInfo, tabId: tab?.id, tabUrl: tab?.url, tabTitle: tab?.title ?? '', level, hasOmnipotence });
+        callback({ stats, urlInfo, tabId: tab?.id, tabUrl: tab?.url, tabTitle: tab?.title ?? '', favIconUrl: tab?.favIconUrl ?? '', level, hasOmnipotence });
       });
       return true;
     }
@@ -252,22 +252,17 @@ function onMessage(request, sender, callback) {
       return true;
     }
 
-    // ── Selection bubble relay ──────────────────────────────────────────
-    case 'brief:setSelection': {
+    case 'brief:executeSelectionAction': {
       const selText = request.selection ?? '';
       const action  = request.action  ?? 'explainSelection';
+      const sourceUrl = request.url   ?? sender?.tab?.url;
       if (selText) {
-        // Map bubble actions to storage action types
-        const typeMap = { explain: 'explainSelection', define: 'define', synonyms: 'synonyms', ask: 'ask', explainCode: 'explainCode' };
         chrome.storage.session.set({
-          briefPendingAction: { type: typeMap[action] ?? action, selection: selText },
+          briefPendingAction: { type: action, selection: selText, url: sourceUrl },
+        }).then(() => {
+          chrome.action.openPopup?.().catch(() => {});
         });
       }
-      return false;
-    }
-
-    case 'brief:openPopup': {
-      chrome.action.openPopup?.().catch(() => {});
       return false;
     }
 
@@ -325,7 +320,7 @@ function onMessage(request, sender, callback) {
     }
 
     case 'cc:extractPage': {
-      // Inject extractor into active tab, return content
+      // Site-aware extractor — GitHub, YouTube, Reddit, SO, Docs, Articles, Products
       chrome.tabs.query({ active: true, currentWindow: true }).then(async ([tab]) => {
         if (!tab?.id || !tab.url?.startsWith('http')) {
           callback({ error: 'Cannot extract this page.' }); return;
@@ -333,24 +328,267 @@ function onMessage(request, sender, callback) {
         try {
           const results = await chrome.scripting.executeScript({
             target: { tabId: tab.id },
-            func: () => {
-              // Inline extractor — mirrors extractor.js (can't import in executeScript)
+            func: async () => {
+              const host = location.hostname.replace(/^www\./, '');
+
+              // 1. Amazon / Flipkart / BestBuy / Product Pages
+              const isProduct = host.includes('amazon.') || host.includes('flipkart.') || host.includes('bestbuy.') || document.querySelector('[itemtype*="Product"]') !== null;
+              if (isProduct) {
+                const parts = [];
+                const title = document.querySelector('#productTitle, .title-product, h1.product-title, h1')?.textContent?.trim() || document.title;
+                if (title) parts.push('Product Title: ' + title);
+
+                const priceEl = document.querySelector('.a-price .a-offscreen, .priceToPay, .price-value, [data-price], .price, [class*="price"]');
+                const price = priceEl?.textContent?.trim() || '';
+                if (price) parts.push('Price: ' + price);
+
+                const ratingEl = document.querySelector('#acrCustomerReviewText, .average-rating, .rating, [class*="rating"]');
+                const rating = ratingEl?.textContent?.trim() || '';
+                if (rating) parts.push('Rating: ' + rating);
+
+                const featureEls = document.querySelectorAll('#feature-bullets li span, .product-features li, ul.features li, [class*="features"] li');
+                const features = [...featureEls].map(el => el.textContent.trim()).filter(Boolean);
+                if (features.length) {
+                  parts.push('Key Features:\n' + features.slice(0, 10).map(f => '- ' + f).join('\n'));
+                }
+
+                const descEl = document.querySelector('#productDescription, .product-description, #description');
+                const desc = descEl?.textContent?.trim() || '';
+                if (desc) parts.push('Description:\n' + desc.slice(0, 1500));
+
+                const text = parts.join('\n\n').trim();
+                const finalText = text.length > 50 ? text : document.body.innerText.replace(/\s+/g,' ').trim().slice(0, 4000);
+                return {
+                  title: title || document.title,
+                  url: location.href,
+                  text: finalText.slice(0, 6000),
+                  excerpt: finalText.slice(0, 220),
+                  wordCount: finalText.split(/\s+/).filter(Boolean).length,
+                  isProduct: true
+                };
+              }
+
+              // 2. GitHub / GitLab
+              if (host === 'github.com' || host === 'gitlab.com') {
+                const parts = [];
+                const isFileView = location.pathname.includes('/blob/');
+
+                // 1. README
+                const readme = document.querySelector('#readme article.markdown-body, #readme .markdown-body, article.markdown-body[class], div[data-target="readme-toc.content"] .markdown-body');
+                if (readme) {
+                  const c = readme.cloneNode(true);
+                  c.querySelectorAll('script,style,svg,canvas,img[src*="shields.io"],img[src*="badge"],a.anchor').forEach(e => e.remove());
+                  const readmeText = (c.innerText || c.textContent || '').replace(/\n{3,}/g,'\n\n').trim();
+                  if (readmeText.length > 50) {
+                    parts.push('README:\n' + readmeText.slice(0, 5000));
+                  }
+                }
+
+                // 2. Description
+                const desc = document.querySelector('[data-testid="repository-description"], p.f4.my-3, .repository-description, .BorderGrid-cell p.color-fg-muted');
+                const descText = desc?.textContent?.trim();
+                if (descText) parts.push('Description: ' + descText);
+
+                // 3. Repository metadata (excluding stars UI, sidebar, navigation, chrome)
+                const repoTitle = document.querySelector('strong[itemprop="name"] a, h1.d-flex a')?.textContent?.trim() || document.title.split(':')[0]?.trim();
+                if (repoTitle) parts.push('Repository: ' + repoTitle);
+
+                const langEls = document.querySelectorAll('li.d-inline-flex a[data-ga-click*="Repository, language"] span, li.d-inline-flex span:not([class])');
+                const languages = [...langEls].map(el => el.textContent.trim()).filter(Boolean);
+                if (languages.length) parts.push('Languages: ' + languages.join(', '));
+
+                const topics = [...document.querySelectorAll('[data-octo-dimensions*="topic"], a.topic-tag, a[href*="/topics/"]')]
+                  .map(t => t.textContent.trim()).filter(Boolean);
+                if (topics.length) parts.push('Topics: ' + topics.slice(0, 8).join(', '));
+
+                // 4. Current file & 5. Code blocks
+                if (isFileView) {
+                  const currentFile = document.querySelector('.final-path')?.textContent?.trim() || location.pathname.split('/').pop();
+                  const currentPath = location.pathname;
+                  parts.push(`Current File: ${currentFile}\nPath: ${currentPath}`);
+
+                  const fileLines = document.querySelectorAll('.blob-code-inner, #read-only-cursor-text-area');
+                  const code = [...fileLines].map(el => el.textContent).join('\n').trim().slice(0, 4500);
+                  if (code) parts.push(`Code Content:\n${code}`);
+                }
+
+                const text = parts.join('\n\n').trim();
+                const finalText = text.length > 50 ? text : document.body.innerText.replace(/\s+/g,' ').trim().slice(0, 4000);
+                return {
+                  title: document.title.trim().slice(0,200),
+                  url: location.href,
+                  text: finalText.slice(0, 6000),
+                  excerpt: finalText.slice(0, 220),
+                  wordCount: finalText.split(/\s+/).filter(Boolean).length
+                };
+              }
+
+              // 3. YouTube
+              if (host === 'youtube.com' || host === 'youtu.be') {
+                let segs = document.querySelectorAll('ytd-transcript-segment-renderer .segment-text');
+                if (!segs.length) {
+                  const expandButton = document.querySelector('#expand, ytd-text-inline-expander [role="button"]');
+                  if (expandButton && expandButton.getAttribute('aria-expanded') !== 'true') {
+                    expandButton.click();
+                    await new Promise(r => setTimeout(r, 200));
+                  }
+
+                  const showTranscriptBtn = document.querySelector('button[aria-label*="transcript" i], ytd-button-renderer#trigger-button, tp-yt-paper-button[aria-label*="transcript" i]') ||
+                    [...document.querySelectorAll('button, tp-yt-paper-button, ytd-button-renderer')].find(el => el.textContent?.toLowerCase().includes('transcript'));
+
+                  if (showTranscriptBtn) {
+                    showTranscriptBtn.click();
+                    for (let i = 0; i < 15; i++) {
+                      await new Promise(r => setTimeout(r, 100));
+                      segs = document.querySelectorAll('ytd-transcript-segment-renderer .segment-text');
+                      if (segs.length) break;
+                    }
+                  }
+                }
+
+                const videoEl = document.querySelector('video');
+                const durationSec = videoEl ? videoEl.duration : 0;
+                let durationMins = durationSec ? Math.round(durationSec / 60) : 0;
+                if (!durationMins) {
+                  const durationMeta = document.querySelector('meta[itemprop="duration"]')?.getAttribute('content');
+                  if (durationMeta) {
+                    const m = durationMeta.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+                    if (m) {
+                      const hrs = parseInt(m[1] || '0', 10);
+                      const mins = parseInt(m[2] || '0', 10);
+                      durationMins = hrs * 60 + mins;
+                    }
+                  }
+                }
+
+                const parts = [];
+                const vTitle = document.querySelector('h1.ytd-video-primary-info-renderer yt-formatted-string, ytd-watch-metadata h1 yt-formatted-string')?.textContent?.trim() || document.title;
+                if (vTitle) parts.push('Title: ' + vTitle);
+                const channel = document.querySelector('ytd-channel-name a, ytd-video-owner-renderer #channel-name a')?.textContent?.trim() || '';
+                if (channel) parts.push('Channel: ' + channel);
+                const vDesc = document.querySelector('#description-inline-expander, #description-text, ytd-expandable-video-description-body-renderer')?.textContent?.trim() || document.querySelector('meta[name="description"]')?.content?.trim();
+                if (vDesc) parts.push('Description:\n' + vDesc.slice(0, 1500));
+                if (durationMins) parts.push(`Duration: ${durationMins} minutes`);
+
+                segs = document.querySelectorAll('ytd-transcript-segment-renderer .segment-text');
+                if (segs.length) {
+                  parts.push('Transcript:\n' + [...segs].map(s => s.textContent?.trim()).filter(Boolean).join(' ').slice(0, 4000));
+                } else {
+                  parts.push('Transcript:\nNo transcript available.');
+                }
+                const chapterEls = document.querySelectorAll('#panels ytd-chapter-renderer #title, ytd-macro-markers-list-item-renderer #headline');
+                const chapters = [...chapterEls].map(c => c.textContent.trim()).filter(Boolean);
+                if (chapters.length) parts.push('Chapters: ' + chapters.join(' | '));
+
+                const hasTranscript = segs.length > 0;
+                const hasChapters = chapters.length > 0;
+                const text = parts.join('\n\n');
+                return {
+                  title: vTitle || document.title.trim(),
+                  url: location.href,
+                  text: text.slice(0, 6000),
+                  excerpt: text.slice(0, 220),
+                  wordCount: text.split(/\s+/).filter(Boolean).length,
+                  hasTranscript,
+                  hasChapters,
+                  durationMins
+                };
+              }
+
+              // 4. Reddit
+              if (host === 'reddit.com' || host === 'old.reddit.com') {
+                const parts = [];
+                const pTitle = document.querySelector('shreddit-title')?.getAttribute('title')
+                            || document.querySelector('[data-testid="post-title"], .Post h1, h1, .top-matter p.title a')?.textContent?.trim()
+                            || document.title;
+                if (pTitle) parts.push('Post Title: ' + pTitle);
+
+                const pBody = document.querySelector('shreddit-post [slot="text-body"], [data-click-id="text"] div, .RichTextJSON-root, .usertext-body .md');
+                const bodyText = pBody?.textContent?.trim();
+                if (bodyText) parts.push('Post Body:\n' + bodyText.slice(0, 1500));
+
+                const comments = [];
+                const shredditComments = document.querySelectorAll('shreddit-comment');
+                if (shredditComments.length) {
+                  shredditComments.forEach(c => {
+                    if (comments.length >= 15) return;
+                    const author = c.getAttribute('author') || '';
+                    const body = c.querySelector('[id*="-post-rtjson-content"], p');
+                    const text = body?.textContent?.trim();
+                    if (text && text.length > 5) {
+                      comments.push(`- ${author ? author + ': ' : ''}${text.slice(0, 300)}`);
+                    }
+                  });
+                } else {
+                  const oldComments = document.querySelectorAll('.comment, [data-testid="comment"]');
+                  oldComments.forEach(c => {
+                    if (comments.length >= 15) return;
+                    const body = c.querySelector('.usertext-body .md, .RichTextJSON-root');
+                    const text = body?.textContent?.trim();
+                    if (text && text.length > 5) {
+                      comments.push(`- ${text.slice(0, 300)}`);
+                    }
+                  });
+                }
+                if (comments.length) parts.push('Top Comments:\n' + comments.join('\n'));
+
+                const text = parts.join('\n\n').trim();
+                return { title: pTitle || document.title, url: location.href, text: text.slice(0, 6000), excerpt: text.slice(0, 220), wordCount: text.split(/\s+/).filter(Boolean).length };
+              }
+
+              // 5. Stack Overflow / Stack Exchange
+              if (host.includes('stackoverflow.com') || host.includes('stackexchange.com')) {
+                const parts = [];
+                const qTitle = document.querySelector('#question-header h1, h1[itemprop="name"]')?.textContent?.trim() || document.title;
+                if (qTitle) parts.push('Question: ' + qTitle);
+                const qBody = document.querySelector('.question .s-prose, .question .post-text');
+                if (qBody?.textContent?.trim()) parts.push('Details:\n' + qBody.textContent.trim().slice(0, 800));
+                const accepted = document.querySelector('.accepted-answer .s-prose, .accepted-answer .post-text');
+                if (accepted) {
+                  const code = [...accepted.querySelectorAll('pre code')].map(c => c.textContent.trim()).join('\n\n');
+                  parts.push('Accepted answer:\n' + accepted.textContent.trim().slice(0, 1500));
+                  if (code) parts.push('Code:\n```\n' + code.slice(0, 1500) + '\n```');
+                }
+                const topAns = document.querySelector('.answer:not(.accepted-answer) .s-prose');
+                if (topAns) parts.push('Top answer:\n' + topAns.textContent.trim().slice(0, 600));
+                const text = parts.join('\n\n') || document.body.innerText.slice(0, 4000);
+                return { title: qTitle, url: location.href, text: text.slice(0, 6000), excerpt: text.slice(0, 220), wordCount: text.split(/\s+/).filter(Boolean).length };
+              }
+
+              // 6. Documentation
+              const isDocsPage = host.startsWith('docs.') || host === 'developer.mozilla.org' || host.includes('readthedocs') || location.pathname.includes('/docs/');
+              if (isDocsPage) {
+                const docRoot = document.querySelector('article')
+                             || document.querySelector('main')
+                             || document.querySelector('[role="main"]')
+                             || document.querySelector('.md-content, .rst-content, #main-content');
+                if (docRoot) {
+                  const cl = docRoot.cloneNode(true);
+                  cl.querySelectorAll('nav, aside, footer, header, .sidebar, .toc, .table-of-contents, .navigation, .ads, script, style, [class*="nav"], [class*="sidebar"], [class*="toc"], [class*="footer"], [class*="header"], [class*="ads"], [class*="menu"]').forEach(e => e.remove());
+                  const text = (cl.innerText || cl.textContent || '').replace(/\n{3,}/g,'\n\n').trim().slice(0, 6000);
+                  const meta = document.querySelector('meta[name="description"]')?.content?.trim() ?? '';
+                  return { title: document.title.trim().slice(0,200), url: location.href, text: text || meta, excerpt: text.slice(0, 220) || meta, wordCount: (text || meta).split(/\s+/).filter(Boolean).length };
+                }
+              }
+
+              // 7. General article extractor
               const NOISE = [
                 'script','style','noscript','iframe','svg','canvas',
                 'header:not(article header)','footer:not(article footer)',
                 'nav','[role="navigation"]','aside','[role="complementary"]',
+                '#sidebar','.sidebar','[class*="sidebar"]','[class*="menu"]',
                 '[class*="cookie"]','[class*="popup"]','[class*="modal"]',
                 '[class*="overlay"]','[class*="banner"]','[class*="advert"]',
-                '[class*="social"]','[class*="share"]','[class*="comment"]',
-                '[class*="related"]','[class*="sidebar"]','[class*="newsletter"]',
-                '[class*="-ad-"]','[aria-label*="advertisement" i]',
-                'form:not(article form)',
+                '[class*="social"]','[class*="share"]','[class*="related"]',
+                '[class*="newsletter"]','[class*="-ad-"]','[class*="promo"]',
+                '[aria-label*="advertisement" i]','form:not(article form)',
+                '[class*="recommend"]','[class*="toc"]','.toc','.table-of-contents'
               ].join(',');
               const CONTENT = [
                 'article','[role="main"]','main',
                 '.post-content','.article-content','.entry-content',
                 '.post-body','.article-body','.story-body',
-                '#content','#main-content','#article-content',
+                '#content','#main-content','#article-content','.content-body',
               ].join(',');
 
               function scoreEl(el) {
@@ -375,7 +613,6 @@ function onMessage(request, sender, callback) {
               const clone = root.cloneNode(true);
               try { clone.querySelectorAll(NOISE).forEach(e => e.remove()); } catch {}
 
-              // Structured text with paragraph breaks
               const blocks = [];
               function walk(n) {
                 if (n.nodeType === 3) { const t = n.textContent.replace(/\s+/g,' '); if (t.trim()) blocks.push(t); return; }
@@ -412,7 +649,7 @@ function onMessage(request, sender, callback) {
       return true;
     }
 
-    case 'cc:declutter': {
+        case 'cc:declutter': {
       const mode = request.mode ?? 'balanced';
       chrome.tabs.query({ active: true, currentWindow: true }).then(async ([tab]) => {
         if (!tab?.id || !tab.url?.startsWith('http')) {
@@ -581,81 +818,7 @@ const isFullyInitialized = start().then(() => {
   });
 }).then(restart => { if (restart === true) runtime.reload(); });
 
-// ── Spatial AI stream port connection ─────────────────────────────────────────
-const LLAMA_CHAT_URL = 'http://127.0.0.1:8080/v1/chat/completions';
 
-async function streamAiInServiceWorker(messages, maxTokens, port, signal) {
-  const ctrl = new AbortController();
-  if (signal) {
-    signal.addEventListener('abort', () => ctrl.abort());
-  }
-  const timer = setTimeout(() => ctrl.abort(), 30000);
-
-  try {
-    const res = await fetch(LLAMA_CHAT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'local',
-        messages,
-        temperature: 0.35,
-        max_tokens: maxTokens || 350,
-        stream: true,
-      }),
-      signal: ctrl.signal,
-    });
-
-    clearTimeout(timer);
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      throw new Error(`AI error ${res.status}: ${txt.slice(0, 120)}`);
-    }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunkText = decoder.decode(value, { stream: true });
-      for (const line of chunkText.split('\n')) {
-        const t = line.trim();
-        if (!t.startsWith('data:')) continue;
-        const json = t.slice(5).trim();
-        if (json === '[DONE]') break;
-        try {
-          const delta = JSON.parse(json)?.choices?.[0]?.delta?.content ?? '';
-          if (delta) {
-            port.postMessage({ chunk: delta });
-          }
-        } catch {}
-      }
-    }
-    try {
-      port.postMessage({ done: true });
-    } catch {}
-  } catch (err) {
-    clearTimeout(timer);
-    if (err.name !== 'AbortError') {
-      try {
-        port.postMessage({ error: err.message || 'AI request failed' });
-      } catch {}
-    }
-  }
-}
-
-runtime.onConnect.addListener(port => {
-  if (port.name === 'brief-ai-stream') {
-    const controller = new AbortController();
-    port.onDisconnect.addListener(() => {
-      controller.abort();
-    });
-    port.onMessage.addListener(async msg => {
-      const { messages, maxTokens } = msg;
-      await streamAiInServiceWorker(messages, maxTokens, port, controller.signal);
-    });
-  }
-});
 
 runtime.onMessage.addListener((request, sender, callback) => {
   isFullyInitialized.then(() => { const r = onMessage(request, sender, callback); if (r !== true) callback(); });

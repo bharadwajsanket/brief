@@ -15,7 +15,7 @@ Brief is a minimal, elegantly designed native browser companion. Powered by [lla
 - Ask any question about the current page
 - Select any text on a page, right-click, and use **Word Intelligence** to Define, get Synonyms, Explain Code, or Summarize Discussions.
 - **Conversational Continuity**: Follow-up questions about Word Intelligence actions continue the conversation naturally using ephemeral context (<10 min session) without strict page grounding.
-- All inference runs on your machine via a local llama.cpp server (Friday AI)
+- All inference runs on your machine via a local llama.cpp server (Local AI)
 
 **Clean URL tab** — tracker-free links
 - Strips 40+ tracking parameters (UTM, fbclid, gclid, Mailchimp, HubSpot…)
@@ -34,7 +34,7 @@ Brief is a minimal, elegantly designed native browser companion. Powered by [lla
 
 ## Setup
 
-### 1 — Friday AI (llama.cpp server)
+### 1 — Local AI (llama.cpp server)
 
 **Install (macOS/Apple Silicon — recommended)**
 ```bash
@@ -70,7 +70,7 @@ llama-server \
   -ngl 99
 ```
 
-Server runs at `http://127.0.0.1:8080`. The status dot in the popup turns green when connected, displaying **Friday AI**.
+Server runs at `http://127.0.0.1:8080`. The status dot in the popup turns green when connected, displaying **Local AI**.
 
 ### 2 — Rulesets (for ad blocking)
 

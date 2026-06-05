@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Brief",
   "short_name": "Brief",
-  "version": "3.1.0",
+  "version": "4.5.0",
   "description": "A calm local AI layer for the web. Understand any page instantly — no cloud, no accounts, fully private.",
   "author": "bharadwajsanket \u2014 https://github.com/bharadwajsanket",
   "action": {
@@ -169,7 +169,7 @@
       ],
       "js": [
         "/js/content.js",
-        "/js/spatial-select.js"
+        "/js/bubble.js"
       ],
       "css": [
         "/js/hygiene.css"
