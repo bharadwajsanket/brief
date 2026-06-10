@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Brief",
   "short_name": "Brief",
-  "version": "4.5.0",
+  "version": "5.0.1",
   "description": "A calm local AI layer for the web. Understand any page instantly — no cloud, no accounts, fully private.",
   "author": "bharadwajsanket \u2014 https://github.com/bharadwajsanket",
   "action": {
@@ -154,6 +154,20 @@
         "web_accessible_resources/2x2.png",
         "web_accessible_resources/noop.html",
         "web_accessible_resources/noop.json"
+      ],
+      "matches": [
+        "<all_urls>"
+      ],
+      "use_dynamic_url": true
+    },
+    {
+      "resources": [
+        "/js/Readability.js",
+        "/js/site-adapters.js",
+        "/js/extraction-engine.js",
+        "/js/context-engine.js",
+        "/js/prompt-engine.js",
+        "/js/quality-validation.js"
       ],
       "matches": [
         "<all_urls>"

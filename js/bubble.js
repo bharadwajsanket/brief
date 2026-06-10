@@ -1,5 +1,5 @@
 /*
- * Brief — bubble.js v4.5.0
+ * Brief — bubble.js v5.0.1
  * In-page selection bubble: compact contextual action pill.
  * Polished: strong contrast, correct positioning, spring animation, robust dismiss.
  */

@@ -1,5 +1,5 @@
 /*
- * Brief — export.js v4.5.0
+ * Brief — export.js v5.0.1
  * Pure module. No browser APIs except Blob/URL/clipboard (safe in popup context).
  * Converts AI responses and insights to Markdown, JSON, or clipboard.
  */

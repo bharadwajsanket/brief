@@ -1,6 +1,6 @@
-# Brief
+# Brief v5.0.1 — Web Understanding Engine
 
-> A calm local AI layer for the web. Understand any webpage instantly — fully offline.
+> A calm local AI layer for the web. Understand any page instantly with structured site classification, semantic extraction, and offline LLM execution.
 
 Brief is a minimal, elegantly designed native browser companion. Powered by [llama.cpp](https://github.com/ggerganov/llama.cpp) running entirely on your local machine, it guarantees absolute privacy. No cloud. No accounts. No telemetry. Under the hood, it utilizes the highly efficient uBlock Origin Lite declarativeNetRequest engine.
 
@@ -100,16 +100,31 @@ brief/
 ├── manifest.json           MV3 — AI, contextMenus, declarativeNetRequest
 ├── popup.html              Apple-style calm UI popup
 ├── js/
-│   ├── popup.js            Popup logic — AI streaming, URL, declutter
-│   ├── background.js       Service worker — context menus + uBOL engine
+│   ├── popup.js            Popup logic — AI streaming, UI coordination
+│   ├── background.js       Service worker — orchestrates script injection & DNR blocking
 │   ├── url-cleaner.js      sanitizeUrl / extractRedirectTarget / detectAmp
 │   ├── qr.js               Pixel-perfect offline QR generation
-│   ├── ai.js               llama.cpp client (streaming, context prompts)
-│   ├── content.js          Content script — page text extraction
+│   ├── content.js          Content script — hygiene, focus mode, and bubble selections
+│   ├── Readability.js      Offline Mozilla Readability parser for blogs & news
+│   ├── site-adapters.js    Extractors for GitHub, YouTube, Reddit, Docs, and Generic
+│   ├── extraction-engine.js Classification coordinator and metadata parser
+│   ├── context-engine.js   Transforms payloads to rich context & computes intelligence metrics
+│   ├── prompt-engine.js    Domain-focused prompts and anti-hallucination templates
+│   ├── quality-validation.js Validates structures & scores extraction confidence/quality
 │   └── [uBOL engine]       strictblock, mv3-app, etc.
 ├── img/                    Icons (16, 32, 64, 128)
 ├── rulesets/               DNR rulesets (from uBOL release)
-└── tests.js                node tests.js — 37 URL tests
+├── test/
+│   └── extraction.test.mjs Unit and validation tests for extraction pipeline
+```
+
+## Testing
+
+Brief v5.0.1 includes a zero-dependency mock DOM test suite validating the Extraction Engine, Context Engine, Prompt Engine, and Quality Validation Layer.
+
+To run the unit tests:
+```bash
+node test/extraction.test.mjs
 ```
 
 ---

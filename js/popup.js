@@ -1,5 +1,5 @@
 /*
- * Brief — popup.js v4.5.0
+ * Brief — popup.js v5.0.1
  * Apple-style premium visual companion for the browser.
  * All AI runs through local llama.cpp at 127.0.0.1:8080 (Local AI).
  * Integrates URL cleaning, Declutter reader mode, and local LLM chat.
@@ -7,7 +7,8 @@
 
 import { download } from './export.js';
 import { generateQR, downloadQR } from './qr.js';
-import { detectSiteContext } from './site-context.js';
+import { ContextEngine } from './context-engine.js';
+import { PromptEngine } from './prompt-engine.js';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const LLAMA_URL  = 'http://127.0.0.1:8080/v1/chat/completions';
@@ -279,7 +280,7 @@ async function getPageContent() {
 
 // Show/hide Timeline Summary pill based on transcript availability
 function updateTimelineButtonVisibility(page) {
-  const hasTimelineData = page.hasTranscript || page.hasChapters;
+  const hasTimelineData = page.data?.transcript || page.data?.chapters;
 
   // Find the Timeline Summary secondary button
   const pills = [btnSecondary1, btnSecondary2, btnSecondary3];
@@ -298,72 +299,10 @@ function updateTimelineButtonVisibility(page) {
   });
 }
 
-// ── Reading Intelligence ───────────────────────────────────────────────────────
 function computeReadingIntel(page) {
-  const ctx = state.siteContext;
-  const isProduct = (ctx && ctx.type === 'product') || page.isProduct || page.url?.includes('amazon.') || page.url?.includes('flipkart.com') || page.url?.includes('bestbuy.com');
-
-  // 1. Amazon / Product Page: No read time
-  if (isProduct) {
-    state.readTimeStr = 'Product Page';
-    state.difficultyStr = '';
-    updateHeaderSubtitle();
-    return;
-  }
-
-  // 2. YouTube / Video Page: actual video duration
-  const isVideo = (ctx && ctx.type === 'video') || page.url?.includes('youtube.com') || page.url?.includes('youtu.be');
-  if (isVideo) {
-    if (page.durationMins) {
-      state.readTimeStr = `${page.durationMins} min video`;
-    } else {
-      state.readTimeStr = 'Video';
-    }
-    state.difficultyStr = '';
-    updateHeaderSubtitle();
-    return;
-  }
-
-  // 3. GitHub Page: README words / 200
-  const isGithub = (ctx && ctx.type === 'github') || page.url?.includes('github.com') || page.url?.includes('gitlab.com');
-  if (isGithub) {
-    const readmeMatch = page.text?.match(/README:\n([\s\S]+)/);
-    const readmeText = readmeMatch ? readmeMatch[1] : page.text;
-    const wc = readmeText ? readmeText.split(/\s+/).filter(Boolean).length : 0;
-    const mins = Math.max(1, Math.round(wc / 200));
-    state.readTimeStr = `${mins} min`;
-    state.difficultyStr = '';
-    updateHeaderSubtitle();
-    return;
-  }
-
-  const text = (page.text ?? '').trim();
-  if (!text || text.length < 50) return;
-
-  const words = text.split(/\s+/).filter(Boolean);
-  const wc = words.length;
-
-  // 4. Documentation Page: words / 180
-  const isDocs = (ctx && ctx.type === 'docs') || page.url?.includes('docs.') || page.url?.includes('developer.mozilla.org') || page.url?.includes('readthedocs') || page.url?.includes('/docs/');
-  let mins;
-  if (isDocs) {
-    mins = Math.max(1, Math.round(wc / 180));
-  } else {
-    // 5. Articles / Others: words / 225
-    mins = Math.max(1, Math.round(wc / 225));
-  }
-
-  // Difficulty heuristic
-  const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
-  const avgSentenceLen = sentences.length > 0 ? wc / sentences.length : 15;
-  const avgWordLen = words.reduce((s, w) => s + w.replace(/[^a-z]/gi,'').length, 0) / Math.max(wc, 1);
-
-  let difficulty = 'Easy';
-  if (avgSentenceLen > 25 || avgWordLen > 7) difficulty = 'Advanced';
-  else if (avgSentenceLen > 15 || avgWordLen > 5.5) difficulty = 'Medium';
-
-  state.readTimeStr = `${mins} min`;
-  state.difficultyStr = difficulty;
+  const { readTimeStr, difficultyStr } = ContextEngine.computeReadingIntel(page);
+  state.readTimeStr = readTimeStr;
+  state.difficultyStr = difficultyStr;
   updateHeaderSubtitle();
 }
 
@@ -513,47 +452,63 @@ function addCursor() {
 }
 function removeCursor() { cursorEl?.remove(); cursorEl = null; }
 
-// ── Prompts ────────────────────────────────────────────────────────────────────
-const SYS = 'You are Brief, a concise browser reading assistant. Plain text only — no asterisks, no markdown headers. Be direct and specific. Never hallucinate.';
-
-function ctx(page) {
-  const t = (page.text ?? '').trim().slice(0, 4500);
-  let hostname = '';
-  try { hostname = new URL(page.url).hostname; } catch {}
-  return `Title: "${page.title ?? ''}"\nURL: "${page.url ?? ''}"\nHostname: "${hostname}"\n\n${t}`;
+function checkAndShowYoutubeTranscriptNotice(page) {
+  if (page && page.pageType === 'youtube' && !page.data?.transcript) {
+    const warningDiv = document.createElement('div');
+    warningDiv.className = 'youtube-warning';
+    warningDiv.style.cssText = 'color:var(--amber);font-size:11px;font-weight:600;margin-bottom:10px;padding:6px 10px;background:var(--amber-soft);border:1px solid rgba(255,159,10,0.15);border-radius:var(--radius-xs);display:flex;align-items:center;gap:5px;';
+    warningDiv.innerHTML = '⚠️ Transcript unavailable. Summary based on available metadata.';
+    responseBody.appendChild(warningDiv);
+  }
 }
 
-const PROMPTS = {
-  summarize:    p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nSummarize in exactly 4 bullet points. Start each with "- ". One sentence per bullet. Cover the most important ideas.` }],
-  keyPoints:    p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nList 4 specific key facts or takeaways. Start each with "- ". Be concrete — include names, numbers, decisions where present.` }],
-  explain:      p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nExplain what this page is about in 2 clear sentences. Plain language, no jargon.` }],
-  tldr:         p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nOne-sentence TL;DR. Start with the subject directly. Max 25 words.` }],
-  ask:          (p, q) => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nQuestion: ${q}\n\nAnswer using only the content above. Under 3 sentences. If not found, say: "Not covered on this page."` }],
-  productSummary: p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nProvide: 1) A brief Product Summary. 2) A list of Pros. 3) A list of Cons. Plain text only. Use "- " for list items.` }],
+function logAIRequestDetails(page, messages) {
+  console.group('[Brief v5.0.1 Extraction & Prompt Audit]');
+  console.log('URL:', page.url);
+  console.log('Host:', page.host);
+  console.log('Page Type:', page.pageType);
+  console.log('Extraction Method:', page.extractionMethod);
+  console.log('Word Count:', page.wordCount);
+  console.log('Confidence Score:', page.confidence);
+  
+  // Extract a preview from the data context
+  const context = ContextEngine.buildContext(page);
+  console.log('Extraction Preview:', context.slice(0, 300) + (context.length > 300 ? '...' : ''));
+  
+  // Prompt preview
+  const userPrompt = messages[1]?.content || '';
+  console.log('Prompt Preview:', userPrompt.slice(0, 300) + (userPrompt.length > 300 ? '...' : ''));
 
-  explainSelection: s => [{ role:'system', content:SYS }, { role:'user', content:`Selected text:\n"${s.slice(0, 1200)}"\n\nExplain what this means in plain language. 2–3 sentences max. No bullets.` }],
-  define:       w => [{ role:'system', content:SYS }, { role:'user', content:`Word or phrase: "${w.slice(0,80)}"\n\nProvide: 1) A clear one-sentence definition. 2) One natural example sentence. Keep it simple. No headers, no bullets. Two sentences total.` }],
-  synonyms:     w => [{ role:'system', content:SYS }, { role:'user', content:`Word: "${w.slice(0,80)}"\n\nList 4 synonyms and 2 antonyms. Exact format:\nSynonyms: word1, word2, word3, word4\nAntonyms: word1, word2\nNothing else.` }],
-  explainCode:  s => [{ role:'system', content:SYS }, { role:'user', content:`Code:\n\`\`\`\n${s.slice(0,1500)}\n\`\`\`\n\nExplain what this code does in plain English. 2–3 sentences. No bullets. Mention the language if obvious.` }],
-  findBug:      s => [{ role:'system', content:SYS }, { role:'user', content:`Code:\n\`\`\`\n${s.slice(0,1500)}\n\`\`\`\n\nIdentify any bugs, issues, or potential problems. Be specific. If no bugs found, say so. Under 4 sentences.` }],
-  summarizeDiscussion: p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nThis is a discussion or comment thread. Summarize the main viewpoints. Write exactly 3 bullet points starting with "- ". Be specific — include key opinions, not just the topic.` }],
-  summarizeSelection: s => [{ role:'system', content:SYS }, { role:'user', content:`Text:\n"${s.slice(0, 3000)}"\n\nSummarize this text in 2-3 concise sentences. Plain text only.` }],
-  simplifySelection: s => [{ role:'system', content:SYS }, { role:'user', content:`Text:\n"${s.slice(0, 3000)}"\n\nRewrite this in simpler language (maximum 3 sentences). Plain text only.` }],
+  // Prompt Engine Log metrics
+  const sysPrompt = messages[0]?.content || '';
+  console.log("[Brief Prompt Engine Details]", {
+    promptLength: sysPrompt.length + userPrompt.length,
+    systemLength: sysPrompt.length,
+    userLength: userPrompt.length
+  });
 
-  // Site-mode specific
-  keyTakeaways:     p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nList the 5 most important takeaways. Start each with "- ". Be concrete and specific.` }],
-  timelineSummary:  p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nCreate a brief timeline or chapter-by-chapter summary using only the provided video transcript or chapters. Use "- [timestamp/section]: point" format. List up to 6 entries. Never fabricate timestamps. Never hallucinate timeline sections. If transcript is unavailable and there are no chapters, write "No transcript available." and nothing else.` }],
-  communityConsensus: p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nWhat is the overall community consensus or majority opinion in this discussion? 2 sentences. Be honest if opinion is split.` }],
-  argumentsFor:     p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nList the strongest arguments FOR the main position in this discussion. 3 bullet points starting with "- ". Be specific.` }],
-  argumentsAgainst: p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nList the strongest arguments AGAINST the main position in this discussion. 3 bullet points starting with "- ". Be specific.` }],
-  explainRepo:      p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nExplain what this GitHub repository does. What problem does it solve? Who is it for? 3 sentences max. Plain language.` }],
-  whatDoesThisCodeDo: p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nExplain what this code does in plain English. Focus on purpose, inputs, and outputs. 2–3 sentences.` }],
-  explainSolution:  p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nExplain the accepted solution to this Stack Overflow question in plain English. What does it do and why does it work? 3 sentences max.` }],
-  simplerExplanation: p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nExplain the solution to this question as if to a beginner who just started programming. Avoid jargon. 2–3 sentences.` }],
-  keyFix:           p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nWhat is the single most important fix or change suggested in this answer? One sentence. Be direct.` }],
-  explainDocsConcepts: p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nWhat are the 3 most important concepts explained on this documentation page? Use "- " bullets. One sentence each.` }],
-  beginnerExplanation: p => [{ role:'system', content:SYS }, { role:'user', content:`${ctx(p)}\n\nExplain this documentation page as if to someone completely new to the subject. Simple language, no jargon. 3 sentences max.` }],
-};
+  // Brief Debug details
+  console.log("[Brief Debug]", {
+    url: page.url,
+    host: page.host,
+    pageType: page.pageType,
+    adapter: page.extractionMethod,
+    extractionMethod: page.extractionMethod,
+    wordCount: page.wordCount,
+    confidence: page.confidence,
+    contextLength: context.length,
+    promptLength: sysPrompt.length + userPrompt.length
+  });
+
+  // Context Engine Log details
+  console.log("[Brief Context Details]", {
+    sourceType: page.pageType,
+    fields: Object.keys(page.data || {}),
+    contextLength: context.length
+  });
+
+  console.groupEnd();
+}
 
 const dynamicSuggestionsCache = {};
 
@@ -566,7 +521,7 @@ async function getDynamicSuggestions(page) {
 
   try {
     const sys = 'You are a helpful reading assistant. Generate exactly 4 short, contextual follow-up topic suggestions or question prompts based on the provided page text. Each suggestion must be under 3 words. Return them as a single line separated only by commas, without numbering or quotes. Example: "Why it matters, Tech stack, Key issues, Alternatives"';
-    const userPrompt = `${ctx(page)}\n\nGenerate 4 short follow-up topic suggestions based on the text above:`;
+    const userPrompt = `${ContextEngine.buildContext(page)}\n\nGenerate 4 short follow-up topic suggestions based on the text above:`;
     const messages = [
       { role: 'system', content: sys },
       { role: 'user', content: userPrompt }
@@ -595,13 +550,12 @@ async function getDynamicSuggestions(page) {
 
 function getFollowUpPrompt(label, page) {
   const t = label.toLowerCase();
-  const title = (page.title ?? '').trim();
   
   let query = '';
   
   // YouTube
   if (t.includes('explain:') || t.includes('explain video')) {
-    query = `Explain what this video ("${title}") is about in 3 clear sentences. Plain language, no jargon.`;
+    query = `Explain what this video is about in 3 clear sentences. Plain language, no jargon.`;
   } else if (t.includes('key facts')) {
     query = `List 4 key facts or takeaways from this video. Start each with "- ".`;
   } else if (t.includes('about ')) {
@@ -663,7 +617,7 @@ function getFollowUpPrompt(label, page) {
     query = `Answer: ${label} based strictly on the page content.`;
   }
   
-  return `${ctx(page)}\n\nQuestion or Command: ${query}`;
+  return query;
 }
 
 function renderFollowUpChips(aiType) {
@@ -705,14 +659,14 @@ function renderFollowUpChips(aiType) {
     .slice(0, 16);
 
   let pool = [];
-  const isVideo = ctxVal?.type === 'video' || page.url?.includes('youtube.com') || page.url?.includes('youtu.be');
-  const isGithub = ctxVal?.type === 'github' || page.url?.includes('github.com') || page.url?.includes('gitlab.com');
-  const isProduct = ctxVal?.type === 'product' || page.isProduct || page.url?.includes('amazon.com') || page.url?.includes('flipkart.com') || page.url?.includes('bestbuy.com');
-  const isDiscuss = ctxVal?.type === 'discuss' || page.url?.includes('reddit.com') || page.url?.includes('stackoverflow.com');
-  const isDocs = ctxVal?.type === 'docs' || page.url?.includes('/docs/') || page.url?.includes('developer.mozilla.org');
+  const isVideo = page.pageType === 'youtube';
+  const isGithub = page.pageType === 'github';
+  const isProduct = page.pageType === 'product' || page.data?.isProduct;
+  const isDiscuss = page.pageType === 'reddit' || page.pageType === 'qa';
+  const isDocs = page.pageType === 'docs';
 
   if (isVideo) {
-    pool = [`Explain: ${cleanTitle}`, `Key facts`, page.channel ? `About ${page.channel}` : `Channel details`, page.hasChapters ? `Chapters` : `Simpler`];
+    pool = [`Explain: ${cleanTitle}`, `Key facts`, page.data?.channel ? `About ${page.data?.channel}` : `Channel details`, page.data?.chapters ? `Chapters` : `Simpler`];
   } else if (isGithub) {
     pool = [`Tech stack`, `How to run`, `Explain codebase`, `Simpler`];
   } else if (isProduct) {
@@ -757,16 +711,17 @@ async function runFollowUpChip(label) {
     const page = await getPageContent();
     if (!page?.text?.trim()) throw new Error('Page has no readable content.');
 
-    // Print required console.log statements before AI request
-    console.log('[Brief] URL:', page.url);
-    console.log('[Brief] Title:', page.title);
-    console.log('[Brief] Text Length:', page.text.length);
-    console.log('[Brief] Preview:', page.text.slice(0, 300));
-
     const promptText = getFollowUpPrompt(label, page);
-    const messages = [{ role:'system', content:SYS }, { role:'user', content:promptText }];
+    const messages = [
+      { role: 'system', content: PromptEngine.getSystemPrompt(page.pageType) },
+      { role: 'user', content: `${ContextEngine.buildContext(page)}\n\nQuestion or Command: ${promptText}` }
+    ];
+
+    // Print audit logs before AI request
+    logAIRequestDetails(page, messages);
 
     responseBody.innerHTML = '';
+    checkAndShowYoutubeTranscriptNotice(page);
     addCursor();
     let full = '';
     await streamAI(messages, TOKENS.followUp, delta => {
@@ -778,6 +733,7 @@ async function runFollowUpChip(label) {
     });
     removeCursor();
     if (!full.trim()) throw new Error('Empty response.');
+    console.log('[Brief Audit] Response Length:', full.length, 'characters');
     renderResponse(full);
     state.lastResponse = { tag: label, text: full, url: state.tabUrl ?? '', title: state.tabTitle ?? '' };
     saveTakeaway.textContent = 'Save';
@@ -839,47 +795,21 @@ async function runAI(type, label, extra = '', sourceUrl = '') {
     const page = await getPageContent();
     if (!page?.text?.trim()) throw new Error('No content extracted.');
 
-    // 4. Log debug details before EVERY AI request
-    console.log('[Brief] URL:', page.url);
-    console.log('[Brief] Title:', page.title);
-    console.log('[Brief] Text Length:', page.text.length);
-    console.log('[Brief] Preview:', page.text.slice(0, 300));
-
     // Guard: timelineSummary requires actual transcript/chapters
     if (type === 'timelineSummary') {
-      if (!page.hasTranscript && !page.hasChapters) {
+      if (!page.data?.transcript && (!page.data?.chapters || !page.data.chapters.length)) {
         throw new Error('No transcript available.');
       }
     }
 
-    let messages;
-    const SEL_ONLY = ['explainSelection','define','synonyms','explainCode','findBug','summarizeSelection','simplifySelection'];
-    if (SEL_ONLY.includes(type)) {
-      const promptFns = {
-        explainSelection:  s => PROMPTS.explainSelection(s),
-        define:            s => PROMPTS.define(s),
-        synonyms:          s => PROMPTS.synonyms(s),
-        explainCode:       s => PROMPTS.explainCode(s),
-        findBug:           s => PROMPTS.findBug(s),
-        summarizeSelection: s => PROMPTS.summarizeSelection(s),
-        simplifySelection: s => PROMPTS.simplifySelection(s),
-      };
-      messages = promptFns[type](extra);
-    } else {
+    const messages = PromptEngine.buildMessages(page, type, extra);
 
-      if (type === 'ask') {
-        messages = PROMPTS.ask(page, extra);
-      } else if (type === 'summarize' && page.isProduct) {
-        messages = PROMPTS.productSummary(page);
-      } else if (PROMPTS[type]) {
-        messages = PROMPTS[type](page);
-      } else {
-        messages = PROMPTS.summarize(page);
-      }
-    }
+    // Log debug details before EVERY AI request
+    logAIRequestDetails(page, messages);
 
     const maxTokens = TOKENS[type] ?? 350;
     responseBody.innerHTML = '';
+    checkAndShowYoutubeTranscriptNotice(page);
     addCursor();
 
     let full = '';
@@ -893,6 +823,7 @@ async function runAI(type, label, extra = '', sourceUrl = '') {
 
     removeCursor();
     if (!full.trim()) throw new Error('Empty response from AI.');
+    console.log('[Brief Audit] Response Length:', full.length, 'characters');
     renderResponse(full);
 
     state.lastResponse = { tag: label, text: full, url: state.tabUrl ?? '', title: state.tabTitle ?? '' };
@@ -940,6 +871,7 @@ async function runAIWithMessages(messages, label, maxTokens) {
 
   try {
     responseBody.innerHTML = '';
+    checkAndShowYoutubeTranscriptNotice(state.pageContent);
     addCursor();
     let full = '';
     await streamAI(messages, maxTokens, delta => {
@@ -1366,7 +1298,7 @@ function applyThemeColor(hex) {
 
 // ── Context-aware wording ──────────────────────────────────────────────────────
 function applyContextWording(url) {
-  const siteCtx = detectSiteContext(url);
+  const siteCtx = ContextEngine.detectSiteContext(url);
   state.siteContext = siteCtx;
 
   // Primary button
